@@ -12,6 +12,7 @@ from ui.panels.center_panel import CenterPanel
 from ui.panels.right_panel import RightPanel
 from sandbox.file_simulator import file_simulator
 from database.db_manager import db_manager
+from services.report_service import report_service
 from utils.logger import get_logger
 
 class MainWindow(QMainWindow):
@@ -19,8 +20,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.logger = get_logger('MainWindow')
         self.setWindowTitle(f"{AppConfig.APP_NAME} v{AppConfig.APP_VERSION}")
-        self.setMinimumSize(1400, 900)
-        self.resize(1600, 1000)
+        self.setMinimumSize(1500, 900)
+        self.resize(1700, 1000)
         
         self.setStyleSheet(get_style())
         
@@ -31,6 +32,7 @@ class MainWindow(QMainWindow):
         
         self._connect_signals()
         self._check_demo_environment()
+        self.center_panel.refresh_logs()
         
         self.logger.info("主窗口初始化完成")
     
@@ -82,6 +84,11 @@ class MainWindow(QMainWindow):
         batch_recover_action.triggered.connect(self._batch_recover)
         recovery_menu.addAction(batch_recover_action)
         
+        preview_action = QAction("恢复预演", self)
+        preview_action.setShortcut(QKeySequence("F7"))
+        preview_action.triggered.connect(self._preview_recovery)
+        recovery_menu.addAction(preview_action)
+        
         view_menu = menu_bar.addMenu("视图(&V)")
         
         toggle_theme_action = QAction("切换主题", self)
@@ -131,6 +138,10 @@ class MainWindow(QMainWindow):
         self.batch_recover_action.triggered.connect(self._batch_recover)
         toolbar.addAction(self.batch_recover_action)
         
+        self.preview_action = QAction("恢复预演", self)
+        self.preview_action.triggered.connect(self._preview_recovery)
+        toolbar.addAction(self.preview_action)
+        
         toolbar.addSeparator()
         
         self.export_action = QAction("导出报告", self)
@@ -168,14 +179,17 @@ class MainWindow(QMainWindow):
         self.right_panel = RightPanel()
         main_splitter.addWidget(self.right_panel)
         
-        main_splitter.setSizes([350, 500, 550])
+        main_splitter.setSizes([400, 600, 600])
         
         main_layout.addWidget(main_splitter)
     
     def _connect_signals(self):
+        self.left_panel.filters_applied.connect(self.center_panel.apply_filters)
+        self.left_panel.filters_reset.connect(self.center_panel.reset_filters)
+        
+        self.center_panel.data_filtered.connect(self.left_panel.update_statistics)
+        
         self.left_panel.directory_selected.connect(self._on_directory_selected)
-        self.left_panel.timeline_filter_changed.connect(self._on_timeline_filter_changed)
-        self.left_panel.risk_filter_changed.connect(self._on_risk_filter_changed)
         
         self.center_panel.log_selected.connect(self._on_log_selected)
         self.center_panel.logs_selected.connect(self._on_logs_selected)
@@ -196,12 +210,45 @@ class MainWindow(QMainWindow):
             self._refresh_data()
     
     def _export_report(self):
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "导出恢复报告", "", 
-            "HTML报告 (*.html);;CSV文件 (*.csv);;JSON文件 (*.json)"
-        )
-        if file_path:
-            self.status_bar.showMessage(f"报告已导出到: {file_path}")
+        selected_logs = self.center_panel.get_selected_logs()
+        
+        if selected_logs:
+            log_ids = [log['id'] for log in selected_logs]
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "导出恢复报告", "", 
+                "HTML报告 (*.html);;CSV文件 (*.csv);;JSON文件 (*.json)"
+            )
+            
+            if file_path:
+                report = report_service.generate_report(log_ids)
+                
+                if file_path.endswith('.html'):
+                    report_service.export_to_html(report, file_path)
+                elif file_path.endswith('.csv'):
+                    report_service.export_to_csv(report, file_path)
+                else:
+                    report_service.export_to_json(report, file_path)
+                
+                self.status_bar.showMessage(f"报告已导出到: {file_path}")
+                QMessageBox.information(self, "导出成功", f"报告已成功导出到:\n{file_path}")
+        else:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "导出全部恢复报告", "", 
+                "HTML报告 (*.html);;CSV文件 (*.csv);;JSON文件 (*.json)"
+            )
+            
+            if file_path:
+                report = report_service.generate_report()
+                
+                if file_path.endswith('.html'):
+                    report_service.export_to_html(report, file_path)
+                elif file_path.endswith('.csv'):
+                    report_service.export_to_csv(report, file_path)
+                else:
+                    report_service.export_to_json(report, file_path)
+                
+                self.status_bar.showMessage(f"报告已导出到: {file_path}")
+                QMessageBox.information(self, "导出成功", f"报告已成功导出到:\n{file_path}")
     
     def _select_all_logs(self):
         self.center_panel.select_all_logs()
@@ -211,9 +258,15 @@ class MainWindow(QMainWindow):
     
     def _recover_selected(self):
         self.center_panel.recover_selected()
+        self._refresh_data()
     
     def _batch_recover(self):
         self.center_panel.show_batch_recover_dialog()
+        self._refresh_data()
+    
+    def _preview_recovery(self):
+        self.center_panel._show_preview_dialog()
+        self._refresh_data()
     
     def _toggle_theme(self):
         AppConfig.DARK_THEME = not AppConfig.DARK_THEME
@@ -258,6 +311,7 @@ class MainWindow(QMainWindow):
             file_simulator.reset_sandbox()
             self._refresh_data()
             self.status_bar.showMessage("演示环境已重置")
+            self.right_panel._show_empty_state()
     
     def _show_about(self):
         QMessageBox.about(
@@ -266,17 +320,22 @@ class MainWindow(QMainWindow):
             f"<p>版本: {AppConfig.APP_VERSION}</p>"
             f"<p>开发者: {AppConfig.APP_AUTHOR}</p>"
             f"<p>本地文件误删回溯工具</p>"
+            f"<p>功能特性:</p>"
+            f"<ul>"
+            f"<li>多条件组合筛选（目录、时间、风险、操作类型）</li>"
+            f"<li>关键词搜索功能</li>"
+            f"<li>时间轴/日志双视图切换</li>"
+            f"<li>文件快照与版本对比</li>"
+            f"<li>冲突检测与恢复预演</li>"
+            f"<li>恢复到原路径或另存副本</li>"
+            f"<li>批量恢复与报告导出</li>"
+            f"</ul>"
             f"<p>基于 Python + PySide6 + SQLite</p>"
         )
     
     def _on_directory_selected(self, path: str):
-        self.center_panel.filter_by_path(path)
-    
-    def _on_timeline_filter_changed(self, start_time, end_time):
-        self.center_panel.filter_by_time_range(start_time, end_time)
-    
-    def _on_risk_filter_changed(self, risk_levels: list):
-        self.center_panel.filter_by_risk(risk_levels)
+        filters = self.left_panel.get_all_filters()
+        self.center_panel.apply_filters(filters)
     
     def _on_log_selected(self, log_data: dict):
         self.right_panel.display_log_details(log_data)
