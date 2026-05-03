@@ -1,14 +1,13 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTableWidget, QTableWidgetItem,
-    QGroupBox, QPushButton, QHeaderView,
+    QPushButton, QHeaderView,
     QMessageBox, QDialog, QCheckBox,
-    QProgressBar, QSplitter, QMenu, QAbstractItemView
+    QMenu, QAbstractItemView
 )
-from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QAction, QFont, QColor, QCursor
-from typing import Optional, List, Dict, Any
-from datetime import datetime
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction, QColor
+from typing import List, Dict, Any
 from config.app_config import AppConfig
 from database.db_manager import db_manager
 from utils.helpers import format_file_size, format_timestamp
@@ -18,17 +17,19 @@ class CenterPanel(QWidget):
     log_selected = Signal(dict)
     logs_selected = Signal(list)
     recover_requested = Signal(int)
+    data_filtered = Signal(list)
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.logger = get_logger('CenterPanel')
-        self.current_logs = []
-        self.selected_log_ids = []
-        self.filters = {
+        self.all_logs = []
+        self.filtered_logs = []
+        self.current_filters = {
             'path': None,
             'start_time': None,
             'end_time': None,
-            'risk_levels': None
+            'risk_levels': None,
+            'operation_types': None
         }
         self._init_ui()
         self._connect_signals()
@@ -110,11 +111,9 @@ class CenterPanel(QWidget):
         self.log_table.setContextMenuPolicy(Qt.CustomContextMenu)
         
         main_layout.addWidget(self.log_table)
-        
-        self._refresh_logs()
     
     def _connect_signals(self):
-        self.refresh_btn.clicked.connect(self._refresh_logs)
+        self.refresh_btn.clicked.connect(self._load_all_data)
         self.select_all_btn.clicked.connect(self.select_all_logs)
         self.deselect_all_btn.clicked.connect(self.deselect_all_logs)
         self.recover_btn.clicked.connect(self.recover_selected)
@@ -124,21 +123,84 @@ class CenterPanel(QWidget):
         self.log_table.customContextMenuRequested.connect(self._show_context_menu)
         self.log_table.cellClicked.connect(self._on_cell_clicked)
     
-    def _refresh_logs(self):
-        logs = db_manager.get_operation_logs(
-            file_path=self.filters.get('path'),
-            start_time=self.filters.get('start_time'),
-            end_time=self.filters.get('end_time'),
-            limit=1000
-        )
+    def _load_all_data(self):
+        logs = db_manager.get_operation_logs(limit=10000)
+        self.all_logs = logs
+        self.logger.info(f"从数据库加载了 {len(logs)} 条记录")
         
-        self.current_logs = logs
-        self._populate_table(logs)
-        self.stats_label.setText(f"{len(logs)} 条记录")
-        self.logger.info(f"加载了 {len(logs)} 条操作日志")
+        self._apply_current_filters()
+    
+    def _apply_current_filters(self):
+        self.filtered_logs = self._filter_logs(self.all_logs, self.current_filters)
+        self.logger.info(f"筛选后显示 {len(self.filtered_logs)} 条记录")
+        
+        self._populate_table(self.filtered_logs)
+        self.stats_label.setText(f"{len(self.filtered_logs)} 条记录")
+        self.data_filtered.emit(self.filtered_logs)
+    
+    def _filter_logs(self, logs: List[Dict], filters: Dict) -> List[Dict]:
+        if not logs:
+            return []
+        
+        filtered = logs
+        
+        path = filters.get('path')
+        if path:
+            filtered = [
+                l for l in filtered 
+                if l.get('file_path', '').startswith(path)
+            ]
+        
+        start_time = filters.get('start_time')
+        if start_time:
+            filtered = [
+                l for l in filtered 
+                if l.get('operation_time', 0) >= start_time
+            ]
+        
+        end_time = filters.get('end_time')
+        if end_time:
+            filtered = [
+                l for l in filtered 
+                if l.get('operation_time', 0) <= end_time
+            ]
+        
+        risk_levels = filters.get('risk_levels')
+        if risk_levels is not None and len(risk_levels) > 0:
+            filtered = [
+                l for l in filtered 
+                if l.get('risk_level', 'LOW') in risk_levels
+            ]
+        
+        operation_types = filters.get('operation_types')
+        if operation_types is not None and len(operation_types) > 0:
+            filtered = [
+                l for l in filtered 
+                if l.get('operation_type', 'UNKNOWN') in operation_types
+            ]
+        
+        return filtered
+    
+    def apply_filters(self, filters: Dict):
+        self.current_filters = filters.copy()
+        self._apply_current_filters()
+    
+    def reset_filters(self):
+        self.current_filters = {
+            'path': None,
+            'start_time': None,
+            'end_time': None,
+            'risk_levels': None,
+            'operation_types': None
+        }
+        self._apply_current_filters()
     
     def _populate_table(self, logs: List[Dict]):
         self.log_table.setRowCount(0)
+        
+        if not logs:
+            return
+        
         self.log_table.setRowCount(len(logs))
         
         for row, log in enumerate(logs):
@@ -199,21 +261,21 @@ class CenterPanel(QWidget):
     
     def _on_item_clicked(self, item: QTableWidgetItem):
         row = item.row()
-        if row < len(self.current_logs):
-            log_data = self.current_logs[row]
+        if row < len(self.filtered_logs):
+            log_data = self.filtered_logs[row]
             self.log_selected.emit(log_data)
     
     def _on_cell_clicked(self, row: int, column: int):
-        if column == 8 and row < len(self.current_logs):
-            log_data = self.current_logs[row]
+        if column == 8 and row < len(self.filtered_logs):
+            log_data = self.filtered_logs[row]
             self._show_log_details(log_data)
     
     def _on_selection_changed(self):
         selected_rows = self.log_table.selectedItems()
         if selected_rows:
             row = selected_rows[0].row()
-            if row < len(self.current_logs):
-                log_data = self.current_logs[row]
+            if row < len(self.filtered_logs):
+                log_data = self.filtered_logs[row]
                 self.log_selected.emit(log_data)
     
     def _show_context_menu(self, pos):
@@ -243,14 +305,14 @@ class CenterPanel(QWidget):
     
     def _context_recover(self):
         current_row = self.log_table.currentRow()
-        if current_row >= 0 and current_row < len(self.current_logs):
-            log_data = self.current_logs[current_row]
+        if current_row >= 0 and current_row < len(self.filtered_logs):
+            log_data = self.filtered_logs[current_row]
             self._recover_log(log_data)
     
     def _context_show_details(self):
         current_row = self.log_table.currentRow()
-        if current_row >= 0 and current_row < len(self.current_logs):
-            log_data = self.current_logs[current_row]
+        if current_row >= 0 and current_row < len(self.filtered_logs):
+            log_data = self.filtered_logs[current_row]
             self._show_log_details(log_data)
     
     def _show_log_details(self, log_data: Dict):
@@ -343,33 +405,12 @@ class CenterPanel(QWidget):
         
         if reply == QMessageBox.Yes:
             db_manager.mark_log_recovered(log_data['id'], recovered=True)
-            self._refresh_logs()
+            self._load_all_data()
             self.logger.info(f"已恢复日志 ID: {log_data['id']}")
             QMessageBox.information(self, "恢复成功", f"文件 {file_name} 已成功恢复！")
             return True
         
         return False
-    
-    def filter_by_path(self, path: str):
-        self.filters['path'] = path
-        self._refresh_logs()
-    
-    def filter_by_time_range(self, start_time, end_time):
-        if start_time:
-            self.filters['start_time'] = start_time.timestamp()
-        else:
-            self.filters['start_time'] = None
-        
-        if end_time:
-            self.filters['end_time'] = end_time.timestamp()
-        else:
-            self.filters['end_time'] = None
-        
-        self._refresh_logs()
-    
-    def filter_by_risk(self, risk_levels: List[str]):
-        self.filters['risk_levels'] = risk_levels
-        self._refresh_logs()
     
     def select_all_logs(self):
         for row in range(self.log_table.rowCount()):
@@ -393,8 +434,8 @@ class CenterPanel(QWidget):
             widget = self.log_table.cellWidget(row, 0)
             if widget:
                 checkbox = widget.findChild(QCheckBox)
-                if checkbox and checkbox.isChecked() and row < len(self.current_logs):
-                    selected.append(self.current_logs[row])
+                if checkbox and checkbox.isChecked() and row < len(self.filtered_logs):
+                    selected.append(self.filtered_logs[row])
         return selected
     
     def recover_selected(self):
@@ -418,7 +459,7 @@ class CenterPanel(QWidget):
             for log in unrecovered:
                 db_manager.mark_log_recovered(log['id'], recovered=True)
             
-            self._refresh_logs()
+            self._load_all_data()
             self.logger.info(f"批量恢复了 {len(unrecovered)} 个项目")
             QMessageBox.information(self, "恢复完成", f"成功恢复 {len(unrecovered)} 个项目！")
     
@@ -473,11 +514,10 @@ class CenterPanel(QWidget):
                 QMessageBox.warning(dialog, "警告", "请至少选择一种操作类型")
                 return
             
-            logs = db_manager.get_operation_logs(is_recovered=False, limit=10000)
-            
             to_recover = [
-                log for log in logs 
-                if log.get('operation_type') in selected_ops and 
+                log for log in self.filtered_logs 
+                if not log.get('is_recovered') and
+                   log.get('operation_type') in selected_ops and 
                    log.get('risk_level') in selected_risks
             ]
             
@@ -495,7 +535,7 @@ class CenterPanel(QWidget):
                 for log in to_recover:
                     db_manager.mark_log_recovered(log['id'], recovered=True)
                 
-                self._refresh_logs()
+                self._load_all_data()
                 dialog.accept()
                 self.logger.info(f"批量恢复了 {len(to_recover)} 个项目")
                 QMessageBox.information(self, "完成", f"成功恢复 {len(to_recover)} 个项目！")
@@ -505,4 +545,4 @@ class CenterPanel(QWidget):
         dialog.exec()
     
     def refresh_logs(self):
-        self._refresh_logs()
+        self._load_all_data()
