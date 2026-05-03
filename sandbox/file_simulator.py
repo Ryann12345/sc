@@ -27,6 +27,15 @@ class FileSimulator:
             ],
             'log': [
                 "2024-01-15 09:00:00 [INFO] Application started\n2024-01-15 09:00:01 [INFO] Loading configuration\n2024-01-15 09:00:02 [INFO] Connecting to database\n2024-01-15 09:00:03 [INFO] Ready"
+            ],
+            'html': [
+                '<!DOCTYPE html>\n<html>\n<head>\n    <title>示例页面</title>\n</head>\n<body>\n    <h1>欢迎使用</h1>\n    <p>这是一个示例HTML文件。</p>\n</body>\n</html>'
+            ],
+            'css': [
+                'body {\n    font-family: Arial, sans-serif;\n    margin: 0;\n    padding: 20px;\n    background-color: #f5f5f5;\n}\n\nh1 {\n    color: #333;\n}'
+            ],
+            'js': [
+                'function greet(name) {\n    console.log("Hello, " + name + "!");\n    return "Welcome, " + name;\n}\n\n// 示例调用\nvar message = greet("User");\nconsole.log(message);'
             ]
         }
     
@@ -39,7 +48,7 @@ class FileSimulator:
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
     
-    def generate_sample_files(self, count: int = 20) -> List[Dict[str, Any]]:
+    def generate_sample_files(self, count: int = 30) -> List[Dict[str, Any]]:
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
         
         directories = [
@@ -47,7 +56,8 @@ class FileSimulator:
             self.sandbox_root / "projects" / "web_app",
             self.sandbox_root / "projects" / "mobile_app",
             self.sandbox_root / "logs",
-            self.sandbox_root / "backups"
+            self.sandbox_root / "backups",
+            self.sandbox_root / "moved_files"
         ]
         
         for dir_path in directories:
@@ -76,7 +86,7 @@ class FileSimulator:
                 filename = f"{base_name}_{i+1}.{ext}"
             else:
                 dir_name = random.choice(["documents", "projects/web_app", "logs"])
-                filename = self._generate_random_filename(random.choice(['txt', 'json', 'log', 'html']))
+                filename = self._generate_random_filename(random.choice(['txt', 'json', 'log', 'html', 'css', 'js']))
             
             file_path = self.sandbox_root / dir_name / filename
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,7 +116,9 @@ class FileSimulator:
         now = datetime.now()
         
         operation_types = ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']
-        weights = [0.25, 0.15, 0.15, 0.1, 0.25, 0.1]
+        weights = [0.20, 0.18, 0.15, 0.12, 0.25, 0.10]
+        
+        snapshot_versions = {}
         
         for i, file_info in enumerate(files):
             hours_ago = random.randint(0, days_back * 24)
@@ -117,7 +129,7 @@ class FileSimulator:
             
             is_directory = file_info.get('is_directory', False)
             file_size = file_info.get('size', 0)
-            has_backup = random.random() < 0.3
+            has_backup = random.random() < 0.35
             
             risk_level = calculate_risk_level(op_type, file_size, is_directory, has_backup)
             
@@ -163,19 +175,68 @@ class FileSimulator:
             log_id = db_manager.add_operation_log(log_data)
             log_ids.append(log_id)
             
-            if op_type in ['MODIFY', 'OVERWRITE']:
-                snapshot_data = {
-                    'file_id': file_info.get('file_id'),
-                    'file_path': old_path,
-                    'file_name': file_info['name'],
-                    'file_size': file_size,
-                    'file_hash': None,
-                    'snapshot_content': None,
-                    'snapshot_path': None
-                }
-                db_manager.add_file_snapshot(snapshot_data)
+            file_id = file_info.get('file_id')
+            if file_id and op_type in ['MODIFY', 'OVERWRITE', 'CREATE']:
+                if file_id not in snapshot_versions:
+                    snapshot_versions[file_id] = 0
+                
+                num_snapshots = random.randint(1, 3)
+                for v in range(num_snapshots):
+                    snapshot_versions[file_id] += 1
+                    snapshot_data = {
+                        'file_id': file_id,
+                        'file_path': old_path,
+                        'file_name': file_info['name'],
+                        'file_size': file_size + random.randint(-100, 500),
+                        'file_hash': ''.join(random.choices(string.hexdigits, k=64)),
+                        'snapshot_content': None,
+                        'snapshot_path': None
+                    }
+                    db_manager.add_file_snapshot(snapshot_data)
             
             self.logger.info(f"生成操作日志: {op_type} - {file_info['name']}")
+        
+        additional_logs = []
+        for i in range(min(5, len(files))):
+            file_info = files[i]
+            file_id = file_info.get('file_id')
+            
+            for v in range(2):
+                hours_ago = random.randint(0, days_back * 24)
+                minutes_ago = random.randint(0, 59)
+                op_time = (now - timedelta(hours=hours_ago, minutes=minutes_ago)).timestamp()
+                
+                log_data = {
+                    'operation_type': 'MODIFY',
+                    'file_id': file_id,
+                    'file_path': file_info['path'],
+                    'file_name': file_info['name'],
+                    'file_size': file_info['size'],
+                    'old_path': file_info['path'],
+                    'new_path': None,
+                    'risk_level': 'LOW',
+                    'impact_score': random.randint(1, 30),
+                    'has_backup': random.random() < 0.5,
+                    'description': f"文件内容被修改 (版本 {v+1})",
+                    'operation_time': op_time
+                }
+                
+                log_id = db_manager.add_operation_log(log_data)
+                additional_logs.append(log_id)
+                
+                if file_id:
+                    snapshot_data = {
+                        'file_id': file_id,
+                        'file_path': file_info['path'],
+                        'file_name': file_info['name'],
+                        'file_size': file_info['size'],
+                        'file_hash': ''.join(random.choices(string.hexdigits, k=64)),
+                        'snapshot_content': None,
+                        'snapshot_path': None
+                    }
+                    db_manager.add_file_snapshot(snapshot_data)
+        
+        log_ids.extend(additional_logs)
         
         return log_ids
     
@@ -185,7 +246,7 @@ class FileSimulator:
         if self.sandbox_root.exists():
             shutil.rmtree(self.sandbox_root)
         
-        files = self.generate_sample_files(25)
+        files = self.generate_sample_files(30)
         
         log_ids = self.generate_operation_history(files, days_back=7)
         
@@ -223,7 +284,16 @@ class FileSimulator:
     def reset_sandbox(self) -> None:
         if self.sandbox_root.exists():
             shutil.rmtree(self.sandbox_root)
+        
+        db_path = str(AppConfig.DB_PATH)
+        if os.path.exists(db_path):
+            os.remove(db_path)
+        
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
+        
+        from database.db_manager import db_manager
+        db_manager._init_database()
+        
         self.logger.info("沙盒环境已重置")
 
 file_simulator = FileSimulator()

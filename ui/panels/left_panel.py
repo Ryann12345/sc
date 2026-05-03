@@ -2,7 +2,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTreeWidget, QTreeWidgetItem,
     QGroupBox, QPushButton, QComboBox,
-    QCheckBox, QSplitter, QLineEdit
+    QCheckBox, QSplitter, QLineEdit,
+    QFrame
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -36,6 +37,27 @@ class LeftPanel(QWidget):
         title_label.setProperty("class", "title")
         main_layout.addWidget(title_label)
         
+        search_group = QGroupBox("关键词搜索")
+        search_layout = QVBoxLayout(search_group)
+        search_layout.setSpacing(4)
+        
+        keyword_layout = QHBoxLayout()
+        self.keyword_input = QLineEdit()
+        self.keyword_input.setPlaceholderText("输入文件名、路径或描述关键词...")
+        keyword_layout.addWidget(self.keyword_input)
+        
+        self.search_btn = QPushButton("搜索")
+        self.search_btn.setMaximumWidth(60)
+        keyword_layout.addWidget(self.search_btn)
+        
+        search_layout.addLayout(keyword_layout)
+        
+        search_tip = QLabel("提示: 可在筛选后使用关键词进一步过滤")
+        search_tip.setStyleSheet("color: #858585; font-size: 11px;")
+        search_layout.addWidget(search_tip)
+        
+        main_layout.addWidget(search_group)
+        
         splitter = QSplitter(Qt.Vertical)
         splitter.setChildrenCollapsible(False)
         
@@ -43,23 +65,23 @@ class LeftPanel(QWidget):
         directory_layout = QVBoxLayout(directory_group)
         directory_layout.setSpacing(4)
         
-        search_layout = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("搜索目录...")
-        search_layout.addWidget(self.search_input)
-        directory_layout.addLayout(search_layout)
+        dir_search_layout = QHBoxLayout()
+        self.dir_search_input = QLineEdit()
+        self.dir_search_input.setPlaceholderText("搜索目录...")
+        dir_search_layout.addWidget(self.dir_search_input)
+        directory_layout.addLayout(dir_search_layout)
         
         self.directory_tree = QTreeWidget()
         self.directory_tree.setHeaderLabels(["名称", "路径", "状态"])
-        self.directory_tree.setColumnWidth(0, 150)
-        self.directory_tree.setColumnWidth(1, 200)
-        self.directory_tree.setColumnWidth(2, 60)
+        self.directory_tree.setColumnWidth(0, 120)
+        self.directory_tree.setColumnWidth(1, 180)
+        self.directory_tree.setColumnWidth(2, 50)
         self.directory_tree.setAlternatingRowColors(True)
         directory_layout.addWidget(self.directory_tree)
         
         btn_layout = QHBoxLayout()
         self.refresh_dirs_btn = QPushButton("刷新")
-        self.refresh_dirs_btn.setMaximumWidth(80)
+        self.refresh_dirs_btn.setMaximumWidth(60)
         btn_layout.addWidget(self.refresh_dirs_btn)
         
         self.clear_dir_btn = QPushButton("取消选中")
@@ -72,7 +94,7 @@ class LeftPanel(QWidget):
         
         filter_group = QGroupBox("筛选条件")
         filter_layout = QVBoxLayout(filter_group)
-        filter_layout.setSpacing(10)
+        filter_layout.setSpacing(8)
         
         time_label = QLabel("时间范围:")
         filter_layout.addWidget(time_label)
@@ -145,16 +167,20 @@ class LeftPanel(QWidget):
         
         splitter.addWidget(stats_group)
         
-        splitter.setSizes([300, 300, 150])
+        splitter.setSizes([250, 300, 120])
         main_layout.addWidget(splitter)
         
         self._load_directories()
     
     def _connect_signals(self):
         self.directory_tree.itemClicked.connect(self._on_directory_clicked)
-        self.search_input.textChanged.connect(self._filter_directories)
+        self.directory_tree.itemSelectionChanged.connect(self._on_directory_selection_changed)
+        self.dir_search_input.textChanged.connect(self._filter_directories)
         self.refresh_dirs_btn.clicked.connect(self.refresh_directories)
         self.clear_dir_btn.clicked.connect(self._clear_directory_selection)
+        
+        self.search_btn.clicked.connect(self._on_keyword_search)
+        self.keyword_input.returnPressed.connect(self._on_keyword_search)
         
         if self.apply_btn:
             self.apply_btn.clicked.connect(self._apply_filters)
@@ -207,6 +233,12 @@ class LeftPanel(QWidget):
         self.selected_path = path
         self.logger.info(f"选中目录: {path if path else '全部目录'}")
     
+    def _on_directory_selection_changed(self):
+        selected_items = self.directory_tree.selectedItems()
+        if selected_items:
+            path = selected_items[0].data(0, Qt.UserRole)
+            self.selected_path = path
+    
     def _clear_directory_selection(self):
         for i in range(self.directory_tree.topLevelItemCount()):
             item = self.directory_tree.topLevelItem(i)
@@ -219,6 +251,9 @@ class LeftPanel(QWidget):
                 break
         
         self.selected_path = None
+    
+    def _on_keyword_search(self):
+        self._apply_filters()
     
     def _apply_filters(self):
         filters = self.get_all_filters()
@@ -234,6 +269,8 @@ class LeftPanel(QWidget):
         for checkbox in self.op_checkboxes.values():
             checkbox.setChecked(True)
         
+        self.keyword_input.clear()
+        
         self._clear_directory_selection()
         
         self.logger.info("重置筛选条件")
@@ -244,12 +281,18 @@ class LeftPanel(QWidget):
         seconds = self.time_combo.itemData(time_index)
         start_time, end_time = get_time_range(seconds)
         
+        risk_levels = [level for level, cb in self.risk_checkboxes.items() if cb.isChecked()]
+        operation_types = [op for op, cb in self.op_checkboxes.items() if cb.isChecked()]
+        
+        keyword = self.keyword_input.text().strip()
+        
         return {
             'path': self.selected_path,
             'start_time': start_time.timestamp() if start_time else None,
             'end_time': end_time.timestamp() if end_time else None,
-            'risk_levels': [level for level, cb in self.risk_checkboxes.items() if cb.isChecked()],
-            'operation_types': [op for op, cb in self.op_checkboxes.items() if cb.isChecked()]
+            'risk_levels': risk_levels,
+            'operation_types': operation_types,
+            'keyword': keyword if keyword else None
         }
     
     def update_statistics(self, logs: List[Dict]):

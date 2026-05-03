@@ -3,15 +3,411 @@ from PySide6.QtWidgets import (
     QLabel, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView,
     QMessageBox, QDialog, QCheckBox,
-    QMenu, QAbstractItemView
+    QMenu, QAbstractItemView, QTabWidget,
+    QFrame, QScrollArea, QGridLayout, QButtonGroup,
+    QRadioButton, QSpinBox, QFileDialog
 )
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QColor
+from PySide6.QtCore import Qt, Signal, QDate
+from PySide6.QtGui import QAction, QColor, QFont
 from typing import List, Dict, Any
+from datetime import datetime
 from config.app_config import AppConfig
 from database.db_manager import db_manager
+from services.recovery_service import recovery_service
+from services.conflict_service import conflict_service
+from services.report_service import report_service
 from utils.helpers import format_file_size, format_timestamp
 from utils.logger import get_logger
+
+class PreviewDialog(QDialog):
+    def __init__(self, logs: List[Dict], parent=None):
+        super().__init__(parent)
+        self.logger = get_logger('PreviewDialog')
+        self.logs = logs
+        self.conflicts = []
+        self.resolutions = {}
+        self._init_ui()
+        self._analyze_conflicts()
+    
+    def _init_ui(self):
+        self.setWindowTitle("批量恢复预演")
+        self.setMinimumSize(900, 600)
+        self.resize(1000, 700)
+        
+        layout = QVBoxLayout(self)
+        
+        header = QLabel(f"准备恢复 {len(self.logs)} 个文件")
+        header.setProperty("class", "title")
+        layout.addWidget(header)
+        
+        self.tab_widget = QTabWidget()
+        
+        self.summary_tab = self._create_summary_tab()
+        self.tab_widget.addTab(self.summary_tab, "恢复概览")
+        
+        self.conflict_tab = self._create_conflict_tab()
+        self.tab_widget.addTab(self.conflict_tab, "冲突检测")
+        
+        self.detail_tab = self._create_detail_tab()
+        self.tab_widget.addTab(self.detail_tab, "文件列表")
+        
+        layout.addWidget(self.tab_widget)
+        
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        
+        self.export_btn = QPushButton("导出预演报告")
+        self.export_btn.clicked.connect(self._export_preview_report)
+        btn_layout.addWidget(self.export_btn)
+        
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
+        
+        self.execute_btn = QPushButton("执行恢复")
+        self.execute_btn.setProperty("class", "primary")
+        self.execute_btn.clicked.connect(self._execute_recovery)
+        btn_layout.addWidget(self.execute_btn)
+        
+        layout.addLayout(btn_layout)
+    
+    def _create_summary_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        stats_group = QLabel("恢复统计")
+        stats_group.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(stats_group)
+        
+        stats_grid = QGridLayout()
+        
+        by_type = {}
+        by_risk = {}
+        total_size = 0
+        
+        for log in self.logs:
+            op_type = log.get('operation_type', 'UNKNOWN')
+            by_type[op_type] = by_type.get(op_type, 0) + 1
+            
+            risk = log.get('risk_level', 'LOW')
+            by_risk[risk] = by_risk.get(risk, 0) + 1
+            
+            total_size += log.get('file_size', 0)
+        
+        row = 0
+        stats_grid.addWidget(QLabel("总文件数:"), row, 0)
+        stats_grid.addWidget(QLabel(str(len(self.logs))), row, 1)
+        row += 1
+        
+        stats_grid.addWidget(QLabel("总大小:"), row, 0)
+        stats_grid.addWidget(QLabel(format_file_size(total_size)), row, 1)
+        row += 1
+        
+        for op_type, count in by_type.items():
+            op_info = AppConfig.OPERATION_TYPES.get(op_type, {'name': op_type})
+            stats_grid.addWidget(QLabel(f"{op_info['name']}:"), row, 0)
+            stats_grid.addWidget(QLabel(str(count)), row, 1)
+            row += 1
+        
+        layout.addLayout(stats_grid)
+        
+        target_group = QLabel("恢复选项")
+        target_group.setStyleSheet("font-weight: bold; font-size: 14px; margin-top: 20px;")
+        layout.addWidget(target_group)
+        
+        self.target_group = QButtonGroup(self)
+        
+        self.original_radio = QRadioButton("恢复到原路径")
+        self.original_radio.setChecked(True)
+        self.target_group.addButton(self.original_radio)
+        layout.addWidget(self.original_radio)
+        
+        self.custom_radio = QRadioButton("恢复到指定目录:")
+        self.target_group.addButton(self.custom_radio)
+        layout.addWidget(self.custom_radio)
+        
+        custom_layout = QHBoxLayout()
+        self.custom_path_edit = QLabel("(未选择)")
+        self.custom_path_edit.setStyleSheet("color: #858585;")
+        custom_layout.addWidget(self.custom_path_edit)
+        
+        self.browse_btn = QPushButton("浏览...")
+        self.browse_btn.clicked.connect(self._browse_target_dir)
+        custom_layout.addWidget(self.browse_btn)
+        layout.addLayout(custom_layout)
+        
+        conflict_group = QLabel("冲突处理")
+        conflict_group.setStyleSheet("font-weight: bold; font-size: 14px; margin-top: 20px;")
+        layout.addWidget(conflict_group)
+        
+        self.conflict_group = QButtonGroup(self)
+        
+        self.skip_radio = QRadioButton("跳过冲突文件")
+        self.skip_radio.setChecked(True)
+        self.conflict_group.addButton(self.skip_radio)
+        layout.addWidget(self.skip_radio)
+        
+        self.overwrite_radio = QRadioButton("覆盖现有文件")
+        self.conflict_group.addButton(self.overwrite_radio)
+        layout.addWidget(self.overwrite_radio)
+        
+        self.rename_radio = QRadioButton("重命名源文件(保留两者)")
+        self.conflict_group.addButton(self.rename_radio)
+        layout.addWidget(self.rename_radio)
+        
+        layout.addStretch()
+        
+        return widget
+    
+    def _create_conflict_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        self.conflict_label = QLabel("正在分析冲突...")
+        layout.addWidget(self.conflict_label)
+        
+        self.conflict_table = QTableWidget()
+        self.conflict_table.setColumnCount(5)
+        self.conflict_table.setHorizontalHeaderLabels([
+            "类型", "严重程度", "文件", "描述", "处理方式"
+        ])
+        
+        header = self.conflict_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        
+        self.conflict_table.setColumnWidth(0, 100)
+        self.conflict_table.setColumnWidth(1, 80)
+        self.conflict_table.setColumnWidth(4, 120)
+        
+        self.conflict_table.setAlternatingRowColors(True)
+        layout.addWidget(self.conflict_table)
+        
+        return widget
+    
+    def _create_detail_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        self.detail_table = QTableWidget()
+        self.detail_table.setColumnCount(7)
+        self.detail_table.setHorizontalHeaderLabels([
+            "选择", "操作类型", "文件名", "风险等级", "大小", "原路径", "状态"
+        ])
+        
+        header = self.detail_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
+        
+        self.detail_table.setColumnWidth(0, 40)
+        self.detail_table.setColumnWidth(1, 80)
+        self.detail_table.setColumnWidth(3, 80)
+        self.detail_table.setColumnWidth(4, 100)
+        self.detail_table.setColumnWidth(6, 80)
+        
+        self.detail_table.setAlternatingRowColors(True)
+        self._populate_detail_table()
+        
+        layout.addWidget(self.detail_table)
+        
+        return widget
+    
+    def _populate_detail_table(self):
+        self.detail_table.setRowCount(len(self.logs))
+        
+        for row, log in enumerate(self.logs):
+            checkbox = QCheckBox()
+            checkbox.setChecked(True)
+            checkbox_widget = QWidget()
+            checkbox_layout = QHBoxLayout(checkbox_widget)
+            checkbox_layout.addWidget(checkbox)
+            checkbox_layout.setAlignment(Qt.AlignCenter)
+            checkbox_layout.setContentsMargins(0, 0, 0, 0)
+            self.detail_table.setCellWidget(row, 0, checkbox_widget)
+            
+            op_type = log.get('operation_type', 'UNKNOWN')
+            op_info = AppConfig.OPERATION_TYPES.get(op_type, {'name': op_type})
+            op_item = QTableWidgetItem(op_info['name'])
+            self.detail_table.setItem(row, 1, op_item)
+            
+            name_item = QTableWidgetItem(log.get('file_name', ''))
+            name_item.setToolTip(log.get('file_path', ''))
+            self.detail_table.setItem(row, 2, name_item)
+            
+            risk_level = log.get('risk_level', 'LOW')
+            risk_info = AppConfig.RISK_LEVELS.get(risk_level, {'name': risk_level, 'color': '#ffffff'})
+            risk_item = QTableWidgetItem(risk_info['name'])
+            risk_item.setForeground(QColor(risk_info['color']))
+            risk_item.setTextAlignment(Qt.AlignCenter)
+            self.detail_table.setItem(row, 3, risk_item)
+            
+            size = log.get('file_size', 0)
+            size_item = QTableWidgetItem(format_file_size(size))
+            size_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.detail_table.setItem(row, 4, size_item)
+            
+            path_item = QTableWidgetItem(log.get('file_path', ''))
+            self.detail_table.setItem(row, 5, path_item)
+            
+            is_recovered = log.get('is_recovered', 0)
+            status_text = "已恢复" if is_recovered else "待恢复"
+            status_item = QTableWidgetItem(status_text)
+            if is_recovered:
+                status_item.setForeground(QColor("#4ec9b0"))
+            else:
+                status_item.setForeground(QColor("#f14c4c"))
+            status_item.setTextAlignment(Qt.AlignCenter)
+            self.detail_table.setItem(row, 6, status_item)
+    
+    def _analyze_conflicts(self):
+        log_ids = [log['id'] for log in self.logs]
+        self.conflicts = conflict_service.detect_conflicts(log_ids)
+        
+        if not self.conflicts:
+            self.conflict_label.setText("✓ 未检测到严重冲突")
+            self.conflict_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
+        else:
+            high_count = sum(1 for c in self.conflicts if c.get('severity') == 'HIGH')
+            self.conflict_label.setText(f"⚠ 检测到 {len(self.conflicts)} 个潜在问题 (其中 {high_count} 个高风险)")
+            self.conflict_label.setStyleSheet("color: #f14c4c; font-weight: bold;")
+        
+        self._populate_conflict_table()
+    
+    def _populate_conflict_table(self):
+        self.conflict_table.setRowCount(len(self.conflicts))
+        
+        for row, conflict in enumerate(self.conflicts):
+            type_item = QTableWidgetItem(conflict.get('type', 'unknown'))
+            self.conflict_table.setItem(row, 0, type_item)
+            
+            severity = conflict.get('severity', 'LOW')
+            severity_item = QTableWidgetItem(severity)
+            if severity == 'HIGH':
+                severity_item.setForeground(QColor("#f14c4c"))
+            elif severity == 'MEDIUM':
+                severity_item.setForeground(QColor("#FF9800"))
+            severity_item.setTextAlignment(Qt.AlignCenter)
+            self.conflict_table.setItem(row, 1, severity_item)
+            
+            file_item = QTableWidgetItem(conflict.get('file_path', ''))
+            self.conflict_table.setItem(row, 2, file_item)
+            
+            desc_item = QTableWidgetItem(conflict.get('description', ''))
+            self.conflict_table.setItem(row, 3, desc_item)
+            
+            resolution_combo = QLabel("自动处理")
+            self.conflict_table.setCellWidget(row, 4, resolution_combo)
+    
+    def _browse_target_dir(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "选择恢复目标目录")
+        if dir_path:
+            self.custom_path_edit.setText(dir_path)
+            self.custom_path_edit.setStyleSheet("color: #d4d4d4;")
+            self.custom_radio.setChecked(True)
+    
+    def _get_target_path(self) -> str:
+        if self.original_radio.isChecked():
+            return None
+        else:
+            path = self.custom_path_edit.text()
+            if path and path != "(未选择)":
+                return path
+            return None
+    
+    def _get_conflict_resolution(self) -> str:
+        if self.skip_radio.isChecked():
+            return 'skip'
+        elif self.overwrite_radio.isChecked():
+            return 'overwrite'
+        else:
+            return 'rename'
+    
+    def _export_preview_report(self):
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "导出预演报告", "", 
+            "HTML报告 (*.html);;CSV文件 (*.csv);;JSON文件 (*.json)"
+        )
+        
+        if file_path:
+            log_ids = [log['id'] for log in self.logs]
+            report = report_service.generate_report(log_ids)
+            
+            if file_path.endswith('.html'):
+                report_service.export_to_html(report, file_path)
+            elif file_path.endswith('.csv'):
+                report_service.export_to_csv(report, file_path)
+            else:
+                report_service.export_to_json(report, file_path)
+            
+            QMessageBox.information(self, "导出成功", f"报告已导出到:\n{file_path}")
+    
+    def _execute_recovery(self):
+        selected_logs = []
+        for row in range(self.detail_table.rowCount()):
+            widget = self.detail_table.cellWidget(row, 0)
+            if widget:
+                checkbox = widget.findChild(QCheckBox)
+                if checkbox and checkbox.isChecked() and row < len(self.logs):
+                    selected_logs.append(self.logs[row])
+        
+        if not selected_logs:
+            QMessageBox.warning(self, "警告", "请至少选择一个文件进行恢复")
+            return
+        
+        unrecovered = [log for log in selected_logs if not log.get('is_recovered')]
+        if not unrecovered:
+            QMessageBox.information(self, "提示", "选中的项目都已恢复过了")
+            return
+        
+        target_path = self._get_target_path()
+        conflict_resolution = self._get_conflict_resolution()
+        
+        reply = QMessageBox.question(
+            self, "确认恢复",
+            f"确定要恢复 {len(unrecovered)} 个文件吗？\n\n"
+            f"目标路径: {'原路径' if not target_path else target_path}\n"
+            f"冲突处理: {'跳过' if conflict_resolution == 'skip' else ('覆盖' if conflict_resolution == 'overwrite' else '重命名')}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            success_count = 0
+            failed_count = 0
+            errors = []
+            
+            for log in unrecovered:
+                result = recovery_service.recover_file(log['id'], target_path)
+                
+                if result.get('success'):
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append(f"{log.get('file_name')}: {result.get('error', '未知错误')}")
+            
+            self.accept()
+            
+            if errors:
+                error_msg = "\n".join(errors[:10])
+                if len(errors) > 10:
+                    error_msg += f"\n... 还有 {len(errors) - 10} 个错误"
+                
+                QMessageBox.warning(
+                    self, "恢复完成",
+                    f"恢复完成!\n\n成功: {success_count}\n失败: {failed_count}\n\n错误详情:\n{error_msg}"
+                )
+            else:
+                QMessageBox.information(
+                    self, "恢复成功",
+                    f"成功恢复 {success_count} 个文件！"
+                )
 
 class CenterPanel(QWidget):
     log_selected = Signal(dict)
@@ -29,7 +425,8 @@ class CenterPanel(QWidget):
             'start_time': None,
             'end_time': None,
             'risk_levels': None,
-            'operation_types': None
+            'operation_types': None,
+            'keyword': None
         }
         self._init_ui()
         self._connect_signals()
@@ -41,7 +438,7 @@ class CenterPanel(QWidget):
         
         header_layout = QHBoxLayout()
         
-        title_label = QLabel("操作日志")
+        title_label = QLabel("操作视图")
         title_label.setProperty("class", "title")
         header_layout.addWidget(title_label)
         
@@ -51,6 +448,42 @@ class CenterPanel(QWidget):
         header_layout.addWidget(self.stats_label)
         
         main_layout.addLayout(header_layout)
+        
+        view_switch_layout = QHBoxLayout()
+        
+        self.view_group = QButtonGroup(self)
+        
+        self.log_view_radio = QRadioButton("日志视图")
+        self.log_view_radio.setChecked(True)
+        self.view_group.addButton(self.log_view_radio)
+        view_switch_layout.addWidget(self.log_view_radio)
+        
+        self.timeline_view_radio = QRadioButton("时间轴视图")
+        self.view_group.addButton(self.timeline_view_radio)
+        view_switch_layout.addWidget(self.timeline_view_radio)
+        
+        view_switch_layout.addStretch()
+        
+        main_layout.addLayout(view_switch_layout)
+        
+        self.stacked_widget = QWidget()
+        stacked_layout = QVBoxLayout(self.stacked_widget)
+        stacked_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.log_table_container = QWidget()
+        self._init_log_table()
+        stacked_layout.addWidget(self.log_table_container)
+        
+        self.timeline_container = self._create_timeline_view()
+        self.timeline_container.hide()
+        stacked_layout.addWidget(self.timeline_container)
+        
+        main_layout.addWidget(self.stacked_widget)
+    
+    def _init_log_table(self):
+        layout = QVBoxLayout(self.log_table_container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
         
         toolbar_layout = QHBoxLayout()
         
@@ -65,6 +498,10 @@ class CenterPanel(QWidget):
         
         toolbar_layout.addStretch()
         
+        self.preview_btn = QPushButton("恢复预演")
+        self.preview_btn.clicked.connect(self._show_preview_dialog)
+        toolbar_layout.addWidget(self.preview_btn)
+        
         self.recover_btn = QPushButton("恢复选中")
         self.recover_btn.setProperty("class", "primary")
         toolbar_layout.addWidget(self.recover_btn)
@@ -73,13 +510,13 @@ class CenterPanel(QWidget):
         self.batch_recover_btn.setProperty("class", "success")
         toolbar_layout.addWidget(self.batch_recover_btn)
         
-        main_layout.addLayout(toolbar_layout)
+        layout.addLayout(toolbar_layout)
         
         self.log_table = QTableWidget()
-        self.log_table.setColumnCount(9)
+        self.log_table.setColumnCount(10)
         self.log_table.setHorizontalHeaderLabels([
             "选择", "操作类型", "文件名", "风险等级", "影响大小",
-            "大小", "操作时间", "状态", "详情"
+            "大小", "操作时间", "状态", "有备份", "详情"
         ])
         
         header = self.log_table.horizontalHeader()
@@ -92,6 +529,7 @@ class CenterPanel(QWidget):
         header.setSectionResizeMode(6, QHeaderView.Fixed)
         header.setSectionResizeMode(7, QHeaderView.Fixed)
         header.setSectionResizeMode(8, QHeaderView.Fixed)
+        header.setSectionResizeMode(9, QHeaderView.Fixed)
         
         self.log_table.setColumnWidth(0, 40)
         self.log_table.setColumnWidth(1, 80)
@@ -101,6 +539,7 @@ class CenterPanel(QWidget):
         self.log_table.setColumnWidth(6, 160)
         self.log_table.setColumnWidth(7, 80)
         self.log_table.setColumnWidth(8, 60)
+        self.log_table.setColumnWidth(9, 60)
         
         self.log_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.log_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -110,7 +549,43 @@ class CenterPanel(QWidget):
         
         self.log_table.setContextMenuPolicy(Qt.CustomContextMenu)
         
-        main_layout.addWidget(self.log_table)
+        layout.addWidget(self.log_table)
+    
+    def _create_timeline_view(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        toolbar_layout = QHBoxLayout()
+        
+        toolbar_layout.addWidget(QLabel("时间范围:"))
+        
+        self.timeline_day_spin = QSpinBox()
+        self.timeline_day_spin.setRange(1, 30)
+        self.timeline_day_spin.setValue(7)
+        self.timeline_day_spin.setSuffix(" 天")
+        toolbar_layout.addWidget(self.timeline_day_spin)
+        
+        self.refresh_timeline_btn = QPushButton("刷新时间轴")
+        toolbar_layout.addWidget(self.refresh_timeline_btn)
+        
+        toolbar_layout.addStretch()
+        
+        layout.addLayout(toolbar_layout)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        self.timeline_content = QWidget()
+        self.timeline_layout = QVBoxLayout(self.timeline_content)
+        self.timeline_layout.setAlignment(Qt.AlignTop)
+        self.timeline_layout.setSpacing(10)
+        
+        scroll.setWidget(self.timeline_content)
+        layout.addWidget(scroll)
+        
+        return widget
     
     def _connect_signals(self):
         self.refresh_btn.clicked.connect(self._load_all_data)
@@ -122,6 +597,103 @@ class CenterPanel(QWidget):
         self.log_table.itemSelectionChanged.connect(self._on_selection_changed)
         self.log_table.customContextMenuRequested.connect(self._show_context_menu)
         self.log_table.cellClicked.connect(self._on_cell_clicked)
+        
+        self.log_view_radio.toggled.connect(self._on_view_changed)
+        self.refresh_timeline_btn.clicked.connect(self._refresh_timeline)
+    
+    def _on_view_changed(self, checked):
+        if self.log_view_radio.isChecked():
+            self.log_table_container.show()
+            self.timeline_container.hide()
+        else:
+            self.log_table_container.hide()
+            self.timeline_container.show()
+            self._refresh_timeline()
+    
+    def _refresh_timeline(self):
+        for i in reversed(range(self.timeline_layout.count())):
+            self.timeline_layout.itemAt(i).widget().setParent(None)
+        
+        if not self.filtered_logs:
+            empty_label = QLabel("暂无数据")
+            empty_label.setAlignment(Qt.AlignCenter)
+            empty_label.setStyleSheet("color: #858585; font-size: 16px; padding: 50px;")
+            self.timeline_layout.addWidget(empty_label)
+            return
+        
+        logs_by_date = {}
+        for log in self.filtered_logs:
+            op_time = log.get('operation_time', 0)
+            op_date = datetime.fromtimestamp(op_time).strftime("%Y-%m-%d")
+            if op_date not in logs_by_date:
+                logs_by_date[op_date] = []
+            logs_by_date[op_date].append(log)
+        
+        sorted_dates = sorted(logs_by_date.keys(), reverse=True)
+        
+        for date in sorted_dates:
+            date_group = QGroupBox(date)
+            date_layout = QVBoxLayout(date_group)
+            
+            logs = logs_by_date[date]
+            logs.sort(key=lambda x: x.get('operation_time', 0), reverse=True)
+            
+            for log in logs[:20]:
+                item_frame = QFrame()
+                item_frame.setFrameStyle(QFrame.StyledPanel)
+                item_frame.setLineWidth(1)
+                item_frame.setStyleSheet("""
+                    QFrame:hover { background-color: #2a2d2e; }
+                """)
+                
+                item_layout = QHBoxLayout(item_frame)
+                
+                op_type = log.get('operation_type', 'UNKNOWN')
+                op_info = AppConfig.OPERATION_TYPES.get(op_type, {'name': op_type})
+                
+                risk_level = log.get('risk_level', 'LOW')
+                risk_info = AppConfig.RISK_LEVELS.get(risk_level, {'name': risk_level, 'color': '#ffffff'})
+                
+                type_label = QLabel(op_info['name'])
+                type_label.setStyleSheet(f"font-weight: bold; color: {risk_info['color']};")
+                type_label.setMinimumWidth(60)
+                item_layout.addWidget(type_label)
+                
+                name_label = QLabel(log.get('file_name', ''))
+                name_label.setToolTip(log.get('file_path', ''))
+                item_layout.addWidget(name_label, 1)
+                
+                size_label = QLabel(format_file_size(log.get('file_size', 0)))
+                size_label.setMinimumWidth(80)
+                item_layout.addWidget(size_label)
+                
+                time_label = QLabel(datetime.fromtimestamp(log.get('operation_time', 0)).strftime("%H:%M:%S"))
+                time_label.setMinimumWidth(80)
+                item_layout.addWidget(time_label)
+                
+                is_recovered = log.get('is_recovered', 0)
+                status_label = QLabel("已恢复" if is_recovered else "待恢复")
+                if is_recovered:
+                    status_label.setStyleSheet("color: #4ec9b0;")
+                else:
+                    status_label.setStyleSheet("color: #f14c4c;")
+                status_label.setMinimumWidth(60)
+                item_layout.addWidget(status_label)
+                
+                item_frame.setCursor(Qt.PointingHandCursor)
+                item_frame.mousePressEvent = lambda event, l=log: self._on_timeline_item_clicked(l)
+                
+                date_layout.addWidget(item_frame)
+            
+            if len(logs) > 20:
+                more_label = QLabel(f"... 还有 {len(logs) - 20} 条记录")
+                more_label.setStyleSheet("color: #858585; padding: 5px;")
+                date_layout.addWidget(more_label)
+            
+            self.timeline_layout.addWidget(date_group)
+    
+    def _on_timeline_item_clicked(self, log_data: Dict):
+        self.log_selected.emit(log_data)
     
     def _load_all_data(self):
         logs = db_manager.get_operation_logs(limit=10000)
@@ -142,7 +714,7 @@ class CenterPanel(QWidget):
         if not logs:
             return []
         
-        filtered = logs
+        filtered = list(logs)
         
         path = filters.get('path')
         if path:
@@ -152,31 +724,47 @@ class CenterPanel(QWidget):
             ]
         
         start_time = filters.get('start_time')
-        if start_time:
+        if start_time is not None:
             filtered = [
                 l for l in filtered 
                 if l.get('operation_time', 0) >= start_time
             ]
         
         end_time = filters.get('end_time')
-        if end_time:
+        if end_time is not None:
             filtered = [
                 l for l in filtered 
                 if l.get('operation_time', 0) <= end_time
             ]
         
         risk_levels = filters.get('risk_levels')
-        if risk_levels is not None and len(risk_levels) > 0:
-            filtered = [
-                l for l in filtered 
-                if l.get('risk_level', 'LOW') in risk_levels
-            ]
+        if risk_levels is not None:
+            if len(risk_levels) == 0:
+                filtered = []
+            else:
+                filtered = [
+                    l for l in filtered 
+                    if l.get('risk_level', 'LOW') in risk_levels
+                ]
         
         operation_types = filters.get('operation_types')
-        if operation_types is not None and len(operation_types) > 0:
+        if operation_types is not None:
+            if len(operation_types) == 0:
+                filtered = []
+            else:
+                filtered = [
+                    l for l in filtered 
+                    if l.get('operation_type', 'UNKNOWN') in operation_types
+                ]
+        
+        keyword = filters.get('keyword')
+        if keyword:
+            keyword_lower = keyword.lower()
             filtered = [
-                l for l in filtered 
-                if l.get('operation_type', 'UNKNOWN') in operation_types
+                l for l in filtered
+                if keyword_lower in l.get('file_name', '').lower() or
+                   keyword_lower in l.get('file_path', '').lower() or
+                   keyword_lower in l.get('description', '').lower()
             ]
         
         return filtered
@@ -191,7 +779,8 @@ class CenterPanel(QWidget):
             'start_time': None,
             'end_time': None,
             'risk_levels': None,
-            'operation_types': None
+            'operation_types': None,
+            'keyword': None
         }
         self._apply_current_filters()
     
@@ -254,10 +843,18 @@ class CenterPanel(QWidget):
             status_item.setTextAlignment(Qt.AlignCenter)
             self.log_table.setItem(row, 7, status_item)
             
+            has_backup = log.get('has_backup', 0)
+            backup_text = "是" if has_backup else "否"
+            backup_item = QTableWidgetItem(backup_text)
+            if has_backup:
+                backup_item.setForeground(QColor("#4ec9b0"))
+            backup_item.setTextAlignment(Qt.AlignCenter)
+            self.log_table.setItem(row, 8, backup_item)
+            
             detail_item = QTableWidgetItem("查看")
             detail_item.setTextAlignment(Qt.AlignCenter)
             detail_item.setForeground(QColor("#007acc"))
-            self.log_table.setItem(row, 8, detail_item)
+            self.log_table.setItem(row, 9, detail_item)
     
     def _on_item_clicked(self, item: QTableWidgetItem):
         row = item.row()
@@ -266,7 +863,7 @@ class CenterPanel(QWidget):
             self.log_selected.emit(log_data)
     
     def _on_cell_clicked(self, row: int, column: int):
-        if column == 8 and row < len(self.filtered_logs):
+        if column == 9 and row < len(self.filtered_logs):
             log_data = self.filtered_logs[row]
             self._show_log_details(log_data)
     
@@ -284,6 +881,10 @@ class CenterPanel(QWidget):
         recover_action = QAction("恢复此项", self)
         recover_action.triggered.connect(self._context_recover)
         menu.addAction(recover_action)
+        
+        preview_action = QAction("恢复预演", self)
+        preview_action.triggered.connect(self._show_preview_dialog)
+        menu.addAction(preview_action)
         
         menu.addSeparator()
         
@@ -318,8 +919,8 @@ class CenterPanel(QWidget):
     def _show_log_details(self, log_data: Dict):
         dialog = QDialog(self)
         dialog.setWindowTitle("操作详情")
-        dialog.setMinimumWidth(500)
-        dialog.setMinimumHeight(400)
+        dialog.setMinimumWidth(600)
+        dialog.setMinimumHeight(500)
         
         layout = QVBoxLayout(dialog)
         
@@ -404,11 +1005,17 @@ class CenterPanel(QWidget):
         )
         
         if reply == QMessageBox.Yes:
-            db_manager.mark_log_recovered(log_data['id'], recovered=True)
-            self._load_all_data()
-            self.logger.info(f"已恢复日志 ID: {log_data['id']}")
-            QMessageBox.information(self, "恢复成功", f"文件 {file_name} 已成功恢复！")
-            return True
+            result = recovery_service.recover_file(log_data['id'])
+            
+            if result.get('success'):
+                self._load_all_data()
+                self.logger.info(f"已恢复日志 ID: {log_data['id']}")
+                QMessageBox.information(self, "恢复成功", f"文件 {file_name} 已成功恢复！")
+                return True
+            else:
+                error_msg = result.get('error', '未知错误')
+                QMessageBox.warning(self, "恢复失败", f"恢复失败: {error_msg}")
+                return False
         
         return False
     
@@ -456,93 +1063,48 @@ class CenterPanel(QWidget):
         )
         
         if reply == QMessageBox.Yes:
+            success_count = 0
+            failed_count = 0
+            errors = []
+            
             for log in unrecovered:
-                db_manager.mark_log_recovered(log['id'], recovered=True)
+                result = recovery_service.recover_file(log['id'])
+                
+                if result.get('success'):
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append(f"{log.get('file_name')}: {result.get('error', '未知错误')}")
             
             self._load_all_data()
-            self.logger.info(f"批量恢复了 {len(unrecovered)} 个项目")
-            QMessageBox.information(self, "恢复完成", f"成功恢复 {len(unrecovered)} 个项目！")
+            self.logger.info(f"批量恢复了 {success_count} 个项目")
+            
+            if errors:
+                error_msg = "\n".join(errors[:5])
+                if len(errors) > 5:
+                    error_msg += f"\n... 还有 {len(errors) - 5} 个错误"
+                
+                QMessageBox.warning(
+                    self, "恢复完成",
+                    f"恢复完成!\n\n成功: {success_count}\n失败: {failed_count}\n\n错误详情:\n{error_msg}"
+                )
+            else:
+                QMessageBox.information(self, "恢复完成", f"成功恢复 {success_count} 个项目！")
+    
+    def _show_preview_dialog(self):
+        selected = self.get_selected_logs()
+        if not selected:
+            QMessageBox.information(self, "提示", "请先选择要恢复的项目")
+            return
+        
+        dialog = PreviewDialog(selected, self)
+        dialog.exec()
+        
+        if dialog.result() == QDialog.Accepted:
+            self._load_all_data()
     
     def show_batch_recover_dialog(self):
-        dialog = QDialog(self)
-        dialog.setWindowTitle("批量恢复")
-        dialog.setMinimumWidth(400)
-        
-        layout = QVBoxLayout(dialog)
-        
-        info_label = QLabel("选择要恢复的操作类型:")
-        layout.addWidget(info_label)
-        
-        op_checkboxes = {}
-        for op_type, info in AppConfig.OPERATION_TYPES.items():
-            if op_type in ['DELETE', 'OVERWRITE', 'MOVE']:
-                checkbox = QCheckBox(info['name'])
-                checkbox.setChecked(True)
-                op_checkboxes[op_type] = checkbox
-                layout.addWidget(checkbox)
-        
-        risk_label = QLabel("风险等级筛选:")
-        layout.addWidget(risk_label)
-        
-        risk_checkboxes = {}
-        for level, info in AppConfig.RISK_LEVELS.items():
-            checkbox = QCheckBox(info['name'])
-            checkbox.setChecked(True)
-            checkbox.setStyleSheet(f"color: {info['color']};")
-            risk_checkboxes[level] = checkbox
-            layout.addWidget(checkbox)
-        
-        layout.addStretch()
-        
-        btn_layout = QHBoxLayout()
-        
-        recover_btn = QPushButton("执行恢复")
-        recover_btn.setProperty("class", "primary")
-        btn_layout.addWidget(recover_btn)
-        
-        cancel_btn = QPushButton("取消")
-        cancel_btn.clicked.connect(dialog.reject)
-        btn_layout.addWidget(cancel_btn)
-        
-        layout.addLayout(btn_layout)
-        
-        def do_batch_recover():
-            selected_ops = [op for op, cb in op_checkboxes.items() if cb.isChecked()]
-            selected_risks = [level for level, cb in risk_checkboxes.items() if cb.isChecked()]
-            
-            if not selected_ops:
-                QMessageBox.warning(dialog, "警告", "请至少选择一种操作类型")
-                return
-            
-            to_recover = [
-                log for log in self.filtered_logs 
-                if not log.get('is_recovered') and
-                   log.get('operation_type') in selected_ops and 
-                   log.get('risk_level') in selected_risks
-            ]
-            
-            if not to_recover:
-                QMessageBox.information(dialog, "提示", "没有符合条件的待恢复项目")
-                return
-            
-            reply = QMessageBox.question(
-                dialog, "确认",
-                f"找到 {len(to_recover)} 个符合条件的项目。\n确定要恢复吗？",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if reply == QMessageBox.Yes:
-                for log in to_recover:
-                    db_manager.mark_log_recovered(log['id'], recovered=True)
-                
-                self._load_all_data()
-                dialog.accept()
-                self.logger.info(f"批量恢复了 {len(to_recover)} 个项目")
-                QMessageBox.information(self, "完成", f"成功恢复 {len(to_recover)} 个项目！")
-        
-        recover_btn.clicked.connect(do_batch_recover)
-        
-        dialog.exec()
+        self._show_preview_dialog()
     
     def refresh_logs(self):
         self._load_all_data()

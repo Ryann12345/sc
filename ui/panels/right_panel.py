@@ -3,7 +3,9 @@ from PySide6.QtWidgets import (
     QLabel, QTabWidget, QTextEdit, QGroupBox,
     QPushButton, QSplitter, QTableWidget,
     QTableWidgetItem, QHeaderView, QFrame,
-    QMessageBox, QFileDialog, QComboBox
+    QMessageBox, QFileDialog, QComboBox,
+    QCheckBox, QButtonGroup, QRadioButton,
+    QScrollArea, QGridLayout
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QColor, QTextCursor
@@ -11,8 +13,268 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from config.app_config import AppConfig
 from database.db_manager import db_manager
+from services.recovery_service import recovery_service
+from services.conflict_service import conflict_service
+from services.report_service import report_service
 from utils.helpers import format_file_size, format_timestamp, is_text_file
 from utils.logger import get_logger
+
+class RecoveryPreviewWidget(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.logger = get_logger('RecoveryPreview')
+        self.current_log = None
+        self._init_ui()
+    
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        preview_group = QGroupBox("恢复预演")
+        preview_layout = QVBoxLayout(preview_group)
+        
+        self.preview_info = QLabel("选择一个操作记录进行恢复预演")
+        self.preview_info.setStyleSheet("color: #858585; padding: 20px;")
+        self.preview_info.setAlignment(Qt.AlignCenter)
+        preview_layout.addWidget(self.preview_info)
+        
+        self.preview_content = QWidget()
+        self.preview_content.hide()
+        preview_content_layout = QVBoxLayout(self.preview_content)
+        
+        info_grid = QGridLayout()
+        
+        info_grid.addWidget(QLabel("操作类型:"), 0, 0)
+        self.op_type_label = QLabel("-")
+        self.op_type_label.setStyleSheet("font-weight: bold;")
+        info_grid.addWidget(self.op_type_label, 0, 1)
+        
+        info_grid.addWidget(QLabel("文件名:"), 1, 0)
+        self.file_name_label = QLabel("-")
+        self.file_name_label.setStyleSheet("font-weight: bold;")
+        info_grid.addWidget(self.file_name_label, 1, 1)
+        
+        info_grid.addWidget(QLabel("原路径:"), 2, 0)
+        self.old_path_label = QLabel("-")
+        self.old_path_label.setStyleSheet("font-family: Consolas; font-size: 11px;")
+        self.old_path_label.setWordWrap(True)
+        info_grid.addWidget(self.old_path_label, 2, 1)
+        
+        info_grid.addWidget(QLabel("目标路径:"), 3, 0)
+        self.new_path_label = QLabel("-")
+        self.new_path_label.setStyleSheet("font-family: Consolas; font-size: 11px;")
+        self.new_path_label.setWordWrap(True)
+        info_grid.addWidget(self.new_path_label, 3, 1)
+        
+        info_grid.addWidget(QLabel("文件大小:"), 4, 0)
+        self.size_label = QLabel("-")
+        info_grid.addWidget(self.size_label, 4, 1)
+        
+        info_grid.addWidget(QLabel("风险等级:"), 5, 0)
+        self.risk_label = QLabel("-")
+        info_grid.addWidget(self.risk_label, 5, 1)
+        
+        info_grid.addWidget(QLabel("有备份:"), 6, 0)
+        self.backup_label = QLabel("-")
+        info_grid.addWidget(self.backup_label, 6, 1)
+        
+        info_grid.setColumnStretch(1, 1)
+        preview_content_layout.addLayout(info_grid)
+        
+        target_group = QGroupBox("恢复选项")
+        target_layout = QVBoxLayout(target_group)
+        
+        self.target_group = QButtonGroup(self)
+        
+        self.original_radio = QRadioButton("恢复到原路径")
+        self.original_radio.setChecked(True)
+        self.target_group.addButton(self.original_radio)
+        target_layout.addWidget(self.original_radio)
+        
+        self.custom_radio = QRadioButton("恢复到指定目录:")
+        self.target_group.addButton(self.custom_radio)
+        target_layout.addWidget(self.custom_radio)
+        
+        custom_path_layout = QHBoxLayout()
+        self.custom_path_edit = QLabel("(未选择)")
+        self.custom_path_edit.setStyleSheet("color: #858585;")
+        custom_path_layout.addWidget(self.custom_path_edit)
+        
+        self.browse_btn = QPushButton("浏览...")
+        self.browse_btn.clicked.connect(self._browse_target_dir)
+        custom_path_layout.addWidget(self.browse_btn)
+        target_layout.addLayout(custom_path_layout)
+        
+        preview_content_layout.addWidget(target_group)
+        
+        conflict_group = QGroupBox("冲突处理")
+        conflict_layout = QVBoxLayout(conflict_group)
+        
+        self.conflict_group = QButtonGroup(self)
+        
+        self.skip_radio = QRadioButton("跳过冲突文件")
+        self.skip_radio.setChecked(True)
+        self.conflict_group.addButton(self.skip_radio)
+        conflict_layout.addWidget(self.skip_radio)
+        
+        self.overwrite_radio = QRadioButton("覆盖现有文件")
+        self.conflict_group.addButton(self.overwrite_radio)
+        conflict_layout.addWidget(self.overwrite_radio)
+        
+        self.rename_radio = QRadioButton("重命名源文件(保留两者)")
+        self.conflict_group.addButton(self.rename_radio)
+        conflict_layout.addWidget(self.rename_radio)
+        
+        preview_content_layout.addWidget(conflict_group)
+        
+        btn_layout = QHBoxLayout()
+        
+        self.check_conflict_btn = QPushButton("检测冲突")
+        self.check_conflict_btn.clicked.connect(self._check_conflicts)
+        btn_layout.addWidget(self.check_conflict_btn)
+        
+        btn_layout.addStretch()
+        
+        self.recover_btn = QPushButton("执行恢复")
+        self.recover_btn.setProperty("class", "primary")
+        self.recover_btn.clicked.connect(self._execute_recovery)
+        btn_layout.addWidget(self.recover_btn)
+        
+        preview_content_layout.addLayout(btn_layout)
+        
+        preview_layout.addWidget(self.preview_content)
+        
+        self.conflict_result_label = QLabel("")
+        self.conflict_result_label.setStyleSheet("padding: 10px;")
+        self.conflict_result_label.setWordWrap(True)
+        preview_layout.addWidget(self.conflict_result_label)
+        
+        layout.addWidget(preview_group)
+    
+    def _browse_target_dir(self):
+        dir_path = QFileDialog.getExistingDirectory(self, "选择恢复目标目录")
+        if dir_path:
+            self.custom_path_edit.setText(dir_path)
+            self.custom_path_edit.setStyleSheet("color: #d4d4d4;")
+            self.custom_radio.setChecked(True)
+    
+    def set_log_data(self, log_data: Dict):
+        self.current_log = log_data
+        
+        if not log_data:
+            self.preview_info.show()
+            self.preview_content.hide()
+            self.conflict_result_label.setText("")
+            return
+        
+        self.preview_info.hide()
+        self.preview_content.show()
+        
+        op_type = log_data.get('operation_type', 'UNKNOWN')
+        op_info = AppConfig.OPERATION_TYPES.get(op_type, {'name': op_type})
+        self.op_type_label.setText(op_info['name'])
+        
+        self.file_name_label.setText(log_data.get('file_name', '-'))
+        
+        old_path = log_data.get('old_path') or log_data.get('file_path', '-')
+        self.old_path_label.setText(old_path)
+        
+        new_path = log_data.get('new_path') or log_data.get('file_path', '-')
+        self.new_path_label.setText(new_path)
+        
+        self.size_label.setText(format_file_size(log_data.get('file_size', 0)))
+        
+        risk_level = log_data.get('risk_level', 'LOW')
+        risk_info = AppConfig.RISK_LEVELS.get(risk_level, {'name': risk_level, 'color': '#ffffff'})
+        self.risk_label.setText(f'<span style="color: {risk_info["color"]}; font-weight: bold;">{risk_info["name"]}</span>')
+        
+        has_backup = log_data.get('has_backup', 0)
+        self.backup_label.setText("是" if has_backup else "否")
+        if has_backup:
+            self.backup_label.setStyleSheet("color: #4ec9b0;")
+        else:
+            self.backup_label.setStyleSheet("color: #f14c4c;")
+        
+        self.conflict_result_label.setText("")
+        
+        is_recovered = log_data.get('is_recovered', 0)
+        self.recover_btn.setEnabled(not is_recovered)
+        self.check_conflict_btn.setEnabled(not is_recovered)
+        self.original_radio.setEnabled(not is_recovered)
+        self.custom_radio.setEnabled(not is_recovered)
+        self.browse_btn.setEnabled(not is_recovered)
+        self.skip_radio.setEnabled(not is_recovered)
+        self.overwrite_radio.setEnabled(not is_recovered)
+        self.rename_radio.setEnabled(not is_recovered)
+    
+    def _get_target_path(self) -> Optional[str]:
+        if self.original_radio.isChecked():
+            return None
+        else:
+            path = self.custom_path_edit.text()
+            if path and path != "(未选择)":
+                return path
+            return None
+    
+    def _check_conflicts(self):
+        if not self.current_log:
+            return
+        
+        log_id = self.current_log.get('id')
+        target_path = self._get_target_path()
+        
+        self.conflict_result_label.setText("正在检测冲突...")
+        self.conflict_result_label.setStyleSheet("color: #858585; padding: 10px;")
+        
+        conflicts = conflict_service.detect_conflicts([log_id])
+        
+        if conflicts:
+            conflict = conflicts[0]
+            severity = conflict.get('severity', 'LOW')
+            desc = conflict.get('description', '未知冲突')
+            
+            if severity == 'HIGH':
+                self.conflict_result_label.setText(f"⚠ 检测到高风险冲突:\n{desc}")
+                self.conflict_result_label.setStyleSheet("color: #f14c4c; padding: 10px; font-weight: bold;")
+            else:
+                self.conflict_result_label.setText(f"⚠ 检测到潜在问题:\n{desc}")
+                self.conflict_result_label.setStyleSheet("color: #FF9800; padding: 10px;")
+        else:
+            self.conflict_result_label.setText("✓ 未检测到严重冲突，可以安全恢复")
+            self.conflict_result_label.setStyleSheet("color: #4ec9b0; padding: 10px; font-weight: bold;")
+    
+    def _execute_recovery(self):
+        if not self.current_log:
+            return
+        
+        if self.current_log.get('is_recovered'):
+            QMessageBox.information(self, "提示", "该文件已经恢复过了")
+            return
+        
+        op_type = self.current_log.get('operation_type')
+        file_name = self.current_log.get('file_name')
+        target_path = self._get_target_path()
+        
+        reply = QMessageBox.question(
+            self, "确认恢复",
+            f"确定要恢复以下文件吗？\n\n"
+            f"文件名: {file_name}\n"
+            f"操作类型: {op_type}\n"
+            f"目标路径: {'原路径' if not target_path else target_path}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            result = recovery_service.recover_file(self.current_log['id'], target_path)
+            
+            if result.get('success'):
+                self.current_log['is_recovered'] = 1
+                self.recover_btn.setEnabled(False)
+                self.check_conflict_btn.setEnabled(False)
+                QMessageBox.information(self, "恢复成功", f"文件 {file_name} 已成功恢复！")
+            else:
+                error_msg = result.get('error', '未知错误')
+                QMessageBox.warning(self, "恢复失败", f"恢复失败: {error_msg}")
 
 class RightPanel(QWidget):
     version_selected = Signal(dict)
@@ -28,7 +290,7 @@ class RightPanel(QWidget):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(8)
         
-        title_label = QLabel("详情与预览")
+        title_label = QLabel("详情与操作")
         title_label.setProperty("class", "title")
         main_layout.addWidget(title_label)
         
@@ -46,6 +308,9 @@ class RightPanel(QWidget):
         
         self.path_tab = self._create_path_tab()
         self.tab_widget.addTab(self.path_tab, "路径变更")
+        
+        self.recovery_preview_tab = self._create_recovery_preview_tab()
+        self.tab_widget.addTab(self.recovery_preview_tab, "恢复预演")
         
         main_layout.addWidget(self.tab_widget)
         
@@ -189,9 +454,9 @@ class RightPanel(QWidget):
         layout.addLayout(toolbar_layout)
         
         self.history_table = QTableWidget()
-        self.history_table.setColumnCount(6)
+        self.history_table.setColumnCount(7)
         self.history_table.setHorizontalHeaderLabels([
-            "版本号", "大小", "Hash", "创建时间", "状态", "操作"
+            "版本号", "大小", "Hash", "创建时间", "状态", "操作", "恢复"
         ])
         
         header = self.history_table.horizontalHeader()
@@ -201,12 +466,14 @@ class RightPanel(QWidget):
         header.setSectionResizeMode(3, QHeaderView.Fixed)
         header.setSectionResizeMode(4, QHeaderView.Fixed)
         header.setSectionResizeMode(5, QHeaderView.Fixed)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
         
-        self.history_table.setColumnWidth(0, 80)
+        self.history_table.setColumnWidth(0, 70)
         self.history_table.setColumnWidth(1, 100)
         self.history_table.setColumnWidth(3, 160)
-        self.history_table.setColumnWidth(4, 80)
-        self.history_table.setColumnWidth(5, 80)
+        self.history_table.setColumnWidth(4, 70)
+        self.history_table.setColumnWidth(5, 70)
+        self.history_table.setColumnWidth(6, 100)
         
         self.history_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.history_table.setAlternatingRowColors(True)
@@ -249,11 +516,10 @@ class RightPanel(QWidget):
         history_layout = QVBoxLayout(history_group)
         
         self.path_history_table = QTableWidget()
-        self.path_history_table.setColumnCount(4)
+        self.path_history_table.setColumnCount(5)
         self.path_history_table.setHorizontalHeaderLabels([
             "序号", "操作类型", "原路径", "新路径", "时间"
         ])
-        self.path_history_table.setColumnCount(5)
         
         header = self.path_history_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Fixed)
@@ -275,6 +541,10 @@ class RightPanel(QWidget):
         
         return widget
     
+    def _create_recovery_preview_tab(self) -> QWidget:
+        self.recovery_preview_widget = RecoveryPreviewWidget()
+        return self.recovery_preview_widget
+    
     def _show_empty_state(self):
         empty_text = """
         <div style="text-align: center; padding: 50px; color: #858585;">
@@ -295,6 +565,8 @@ class RightPanel(QWidget):
         
         self.history_table.setRowCount(0)
         self.path_history_table.setRowCount(0)
+        
+        self.recovery_preview_widget.set_log_data(None)
     
     def display_log_details(self, log_data: Dict[str, Any]):
         self.current_log = log_data
@@ -304,6 +576,8 @@ class RightPanel(QWidget):
         self._update_version_combos(log_data)
         self._update_history_table(log_data)
         self._update_path_info(log_data)
+        
+        self.recovery_preview_widget.set_log_data(log_data)
         
         self.logger.info(f"显示日志详情: ID={log_data.get('id')}")
     
@@ -411,10 +685,50 @@ class RightPanel(QWidget):
                 status_item.setForeground(QColor("#f14c4c"))
             self.history_table.setItem(row, 4, status_item)
             
-            action_item = QTableWidgetItem("恢复")
+            action_item = QTableWidgetItem("预览")
             action_item.setTextAlignment(Qt.AlignCenter)
             action_item.setForeground(QColor("#007acc"))
             self.history_table.setItem(row, 5, action_item)
+            
+            is_recovered = self.current_log.get('is_recovered', 0) if self.current_log else False
+            
+            restore_btn = QPushButton("恢复版本")
+            if is_recovered:
+                restore_btn.setEnabled(False)
+                restore_btn.setStyleSheet("color: #858585;")
+            else:
+                restore_btn.setProperty("class", "primary")
+                restore_btn.clicked.connect(lambda checked, s=snapshot: self._restore_snapshot(s))
+            self.history_table.setCellWidget(row, 6, restore_btn)
+    
+    def _restore_snapshot(self, snapshot: Dict):
+        if not self.current_log:
+            return
+        
+        if self.current_log.get('is_recovered'):
+            QMessageBox.information(self, "提示", "该操作已恢复，无法再恢复历史版本")
+            return
+        
+        version = snapshot.get('version', 1)
+        file_name = snapshot.get('file_name', '')
+        
+        reply = QMessageBox.question(
+            self, "确认恢复",
+            f"确定要恢复版本 {version} 吗？\n\n文件: {file_name}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            result = recovery_service.restore_version(
+                snapshot.get('file_id'),
+                version
+            )
+            
+            if result.get('success'):
+                QMessageBox.information(self, "恢复成功", f"版本 {version} 已成功恢复！")
+            else:
+                error_msg = result.get('error', '未知错误')
+                QMessageBox.warning(self, "恢复失败", f"恢复失败: {error_msg}")
     
     def _update_path_info(self, log_data: Dict):
         old_path = log_data.get('old_path', '-')
