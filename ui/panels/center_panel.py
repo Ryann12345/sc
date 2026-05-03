@@ -532,20 +532,20 @@ class CenterPanel(QWidget):
         header.setSectionResizeMode(9, QHeaderView.Fixed)
         
         self.log_table.setColumnWidth(0, 40)
-        self.log_table.setColumnWidth(1, 80)
-        self.log_table.setColumnWidth(3, 80)
+        self.log_table.setColumnWidth(1, 90)
+        self.log_table.setColumnWidth(3, 90)
         self.log_table.setColumnWidth(4, 80)
         self.log_table.setColumnWidth(5, 100)
-        self.log_table.setColumnWidth(6, 160)
+        self.log_table.setColumnWidth(6, 190)
         self.log_table.setColumnWidth(7, 80)
-        self.log_table.setColumnWidth(8, 60)
+        self.log_table.setColumnWidth(8, 70)
         self.log_table.setColumnWidth(9, 60)
         
         self.log_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.log_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.log_table.setAlternatingRowColors(True)
         self.log_table.setSortingEnabled(True)
-        self.log_table.verticalHeader().setDefaultSectionSize(28)
+        self.log_table.verticalHeader().setDefaultSectionSize(32)
         
         self.log_table.setContextMenuPolicy(Qt.CustomContextMenu)
         

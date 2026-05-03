@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QLabel, QTreeWidget, QTreeWidgetItem,
     QGroupBox, QPushButton, QComboBox,
     QCheckBox, QSplitter, QLineEdit,
-    QFrame, QSizePolicy
+    QFrame, QSizePolicy, QScrollArea, QGridLayout
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
@@ -30,67 +30,207 @@ class LeftPanel(QWidget):
     
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(8)
         
         title_label = QLabel("监控与筛选")
         title_label.setProperty("class", "title")
-        title_label.setMinimumHeight(28)
+        title_label.setMinimumHeight(30)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         main_layout.addWidget(title_label)
         
-        search_group = QGroupBox("关键词搜索")
-        search_layout = QVBoxLayout(search_group)
-        search_layout.setSpacing(6)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setFrameShape(QFrame.NoFrame)
+        scroll_area.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #1e1e1e;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #424242;
+                min-height: 30px;
+                border-radius: 6px;
+                margin: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #555555;
+            }
+        """)
         
-        keyword_layout = QHBoxLayout()
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background-color: transparent;")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(2, 2, 2, 2)
+        scroll_layout.setSpacing(10)
+        
+        search_card = self._create_search_card()
+        scroll_layout.addWidget(search_card)
+        
+        directory_card = self._create_directory_card()
+        scroll_layout.addWidget(directory_card, 1)
+        
+        filter_card = self._create_filter_card()
+        scroll_layout.addWidget(filter_card)
+        
+        stats_card = self._create_stats_card()
+        scroll_layout.addWidget(stats_card)
+        
+        scroll_layout.addStretch()
+        
+        scroll_area.setWidget(scroll_content)
+        main_layout.addWidget(scroll_area)
+        
+        self._load_directories()
+    
+    def _create_search_card(self) -> QGroupBox:
+        card = QGroupBox("关键词搜索")
+        card.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #252526;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                background-color: #252526;
+            }
+        """)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 18, 12, 12)
+        layout.setSpacing(8)
+        
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        
         self.keyword_input = QLineEdit()
         self.keyword_input.setPlaceholderText("输入文件名、路径或描述关键词...")
-        self.keyword_input.setMinimumHeight(28)
-        keyword_layout.addWidget(self.keyword_input)
+        self.keyword_input.setMinimumHeight(32)
+        self.keyword_input.setStyleSheet("""
+            QLineEdit {
+                padding: 6px 10px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border-color: #007acc;
+            }
+        """)
+        search_row.addWidget(self.keyword_input)
         
         self.search_btn = QPushButton("搜索")
-        self.search_btn.setMaximumWidth(60)
-        self.search_btn.setMinimumHeight(28)
-        keyword_layout.addWidget(self.search_btn)
+        self.search_btn.setMinimumWidth(60)
+        self.search_btn.setMinimumHeight(32)
+        self.search_btn.setStyleSheet("""
+            QPushButton {
+                padding: 6px 12px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        search_row.addWidget(self.search_btn)
         
-        search_layout.addLayout(keyword_layout)
+        layout.addLayout(search_row)
         
-        search_tip = QLabel("提示: 可在筛选后使用关键词进一步过滤")
-        search_tip.setStyleSheet("color: #858585; font-size: 12px;")
-        search_layout.addWidget(search_tip)
+        tip_label = QLabel("提示: 可在筛选后使用关键词进一步过滤")
+        tip_label.setStyleSheet("color: #858585; font-size: 11px;")
+        layout.addWidget(tip_label)
         
-        main_layout.addWidget(search_group)
+        return card
+    
+    def _create_directory_card(self) -> QGroupBox:
+        card = QGroupBox("监控目录")
+        card.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #252526;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                background-color: #252526;
+            }
+        """)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        card.setMinimumHeight(180)
         
-        splitter = QSplitter(Qt.Vertical)
-        splitter.setChildrenCollapsible(False)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 18, 12, 12)
+        layout.setSpacing(8)
         
-        directory_group = QGroupBox("监控目录")
-        directory_layout = QVBoxLayout(directory_group)
-        directory_layout.setSpacing(6)
+        dir_search_row = QHBoxLayout()
+        dir_search_row.setSpacing(8)
         
-        dir_search_layout = QHBoxLayout()
         self.dir_search_input = QLineEdit()
         self.dir_search_input.setPlaceholderText("搜索目录...")
-        self.dir_search_input.setMinimumHeight(26)
-        dir_search_layout.addWidget(self.dir_search_input)
-        directory_layout.addLayout(dir_search_layout)
+        self.dir_search_input.setMinimumHeight(28)
+        self.dir_search_input.setStyleSheet("""
+            QLineEdit {
+                padding: 5px 10px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 12px;
+            }
+        """)
+        dir_search_row.addWidget(self.dir_search_input)
+        
+        layout.addLayout(dir_search_row)
         
         self.directory_tree = QTreeWidget()
         self.directory_tree.setHeaderLabels(["名称", "路径", "状态"])
-        self.directory_tree.setColumnWidth(0, 130)
-        self.directory_tree.setColumnWidth(1, 200)
+        self.directory_tree.setColumnWidth(0, 140)
+        self.directory_tree.setColumnWidth(1, 180)
         self.directory_tree.setColumnWidth(2, 60)
         self.directory_tree.setAlternatingRowColors(True)
-        self.directory_tree.setMinimumHeight(180)
+        self.directory_tree.setMinimumHeight(120)
         self.directory_tree.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         font = QFont()
         font.setPointSize(12)
         self.directory_tree.setFont(font)
         self.directory_tree.setStyleSheet("""
+            QTreeView {
+                background-color: #1e1e1e;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                color: #d4d4d4;
+                gridline-color: #3c3c3c;
+            }
             QTreeView::item {
-                padding: 8px;
-                min-height: 26px;
+                padding: 10px 6px;
+                min-height: 28px;
+                font-size: 12px;
             }
             QTreeView::item:selected {
                 background-color: #094771;
@@ -99,155 +239,369 @@ class LeftPanel(QWidget):
                 background-color: #2a2d2e;
             }
             QHeaderView::section {
-                padding: 10px;
-                min-height: 30px;
+                background-color: #3c3c3c;
+                border: none;
+                border-bottom: 1px solid #555555;
+                padding: 10px 6px;
+                font-weight: bold;
+                color: #d4d4d4;
                 font-size: 12px;
+                min-height: 32px;
+            }
+            QHeaderView::section:hover {
+                background-color: #4a4a4a;
             }
         """)
-        directory_layout.addWidget(self.directory_tree)
+        layout.addWidget(self.directory_tree)
         
-        btn_layout = QHBoxLayout()
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        
         self.refresh_dirs_btn = QPushButton("刷新")
-        self.refresh_dirs_btn.setMaximumWidth(60)
+        self.refresh_dirs_btn.setMinimumWidth(60)
         self.refresh_dirs_btn.setMinimumHeight(28)
-        btn_layout.addWidget(self.refresh_dirs_btn)
+        self.refresh_dirs_btn.setStyleSheet("""
+            QPushButton {
+                padding: 5px 10px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        btn_row.addWidget(self.refresh_dirs_btn)
         
         self.clear_dir_btn = QPushButton("取消选中")
-        self.clear_dir_btn.setMaximumWidth(80)
+        self.clear_dir_btn.setMinimumWidth(80)
         self.clear_dir_btn.setMinimumHeight(28)
-        btn_layout.addWidget(self.clear_dir_btn)
-        btn_layout.addStretch()
-        directory_layout.addLayout(btn_layout)
+        self.clear_dir_btn.setStyleSheet("""
+            QPushButton {
+                padding: 5px 10px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        btn_row.addWidget(self.clear_dir_btn)
         
-        splitter.addWidget(directory_group)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
         
-        filter_group = QGroupBox("筛选条件")
-        filter_layout = QVBoxLayout(filter_group)
+        return card
+    
+    def _create_filter_card(self) -> QGroupBox:
+        card = QGroupBox("筛选条件")
+        card.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #252526;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                background-color: #252526;
+            }
+        """)
+        card.setMinimumHeight(200)
+        
+        main_layout = QVBoxLayout(card)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        filter_scroll = QScrollArea()
+        filter_scroll.setWidgetResizable(True)
+        filter_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        filter_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        filter_scroll.setFrameShape(QFrame.NoFrame)
+        filter_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #1e1e1e;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #424242;
+                min-height: 25px;
+                border-radius: 5px;
+                margin: 1px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #555555;
+            }
+        """)
+        
+        filter_content = QWidget()
+        filter_content.setStyleSheet("background-color: transparent;")
+        filter_layout = QVBoxLayout(filter_content)
+        filter_layout.setContentsMargins(12, 18, 12, 12)
         filter_layout.setSpacing(12)
         
         time_label = QLabel("时间范围:")
-        time_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+        time_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #d4d4d4;")
         filter_layout.addWidget(time_label)
         
         self.time_combo = QComboBox()
-        self.time_combo.setMinimumHeight(30)
-        self.time_combo.setStyleSheet("font-size: 13px; padding: 6px 10px;")
+        self.time_combo.setMinimumHeight(32)
+        self.time_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px 10px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 13px;
+                min-height: 32px;
+            }
+            QComboBox:hover {
+                border-color: #666666;
+            }
+            QComboBox:focus {
+                border-color: #007acc;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #252526;
+                border: 1px solid #555555;
+                selection-background-color: #094771;
+                font-size: 13px;
+            }
+        """)
         for label, seconds in AppConfig.TIMELINE_INTERVALS:
             self.time_combo.addItem(label, seconds)
         filter_layout.addWidget(self.time_combo)
         
-        risk_label = QLabel("风险等级:")
-        risk_label.setStyleSheet("font-size: 13px; font-weight: bold; margin-top: 8px;")
-        filter_layout.addWidget(risk_label)
+        risk_section_label = QLabel("风险等级:")
+        risk_section_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #d4d4d4; margin-top: 6px;")
+        filter_layout.addWidget(risk_section_label)
         
-        risk_layout = QVBoxLayout()
-        risk_layout.setSpacing(8)
+        risk_container = QWidget()
+        risk_container.setStyleSheet("background-color: #1e1e1e; border-radius: 4px; padding: 8px;")
+        risk_grid = QGridLayout(risk_container)
+        risk_grid.setContentsMargins(10, 10, 10, 10)
+        risk_grid.setSpacing(12)
+        
         self.risk_checkboxes = {}
+        risk_row = 0
+        risk_col = 0
         
         for level, info in AppConfig.RISK_LEVELS.items():
             checkbox = QCheckBox(info['name'])
             checkbox.setChecked(True)
-            checkbox.setMinimumHeight(24)
+            checkbox.setMinimumHeight(26)
             checkbox.setStyleSheet(f"""
                 QCheckBox {{
                     color: {info['color']};
                     font-weight: bold;
                     font-size: 13px;
                     spacing: 10px;
+                    padding: 4px 0;
                 }}
                 QCheckBox::indicator {{
                     width: 18px;
                     height: 18px;
+                    border: 1px solid #555555;
                     border-radius: 4px;
+                    background-color: #3c3c3c;
+                }}
+                QCheckBox::indicator:checked {{
+                    background-color: {info['color']};
+                    border-color: {info['color']};
+                }}
+                QCheckBox::indicator:hover {{
+                    border-color: #666666;
                 }}
             """)
             self.risk_checkboxes[level] = checkbox
-            risk_layout.addWidget(checkbox)
+            
+            risk_grid.addWidget(checkbox, risk_row, risk_col)
+            risk_col += 1
+            if risk_col >= 2:
+                risk_col = 0
+                risk_row += 1
         
-        filter_layout.addLayout(risk_layout)
+        filter_layout.addWidget(risk_container)
         
-        op_label = QLabel("操作类型:")
-        op_label.setStyleSheet("font-size: 13px; font-weight: bold; margin-top: 8px;")
-        filter_layout.addWidget(op_label)
+        op_section_label = QLabel("操作类型:")
+        op_section_label.setStyleSheet("font-size: 13px; font-weight: bold; color: #d4d4d4; margin-top: 6px;")
+        filter_layout.addWidget(op_section_label)
         
-        op_layout = QVBoxLayout()
-        op_layout.setSpacing(8)
+        op_container = QWidget()
+        op_container.setStyleSheet("background-color: #1e1e1e; border-radius: 4px; padding: 8px;")
+        op_grid = QGridLayout(op_container)
+        op_grid.setContentsMargins(10, 10, 10, 10)
+        op_grid.setSpacing(12)
+        
         self.op_checkboxes = {}
+        op_row = 0
+        op_col = 0
         
         for op_type, info in AppConfig.OPERATION_TYPES.items():
             checkbox = QCheckBox(info['name'])
             checkbox.setChecked(True)
-            checkbox.setMinimumHeight(24)
+            checkbox.setMinimumHeight(26)
             checkbox.setStyleSheet("""
                 QCheckBox {
                     color: #d4d4d4;
                     font-size: 13px;
                     spacing: 10px;
+                    padding: 4px 0;
                 }
                 QCheckBox::indicator {
                     width: 18px;
                     height: 18px;
+                    border: 1px solid #555555;
                     border-radius: 4px;
+                    background-color: #3c3c3c;
+                }
+                QCheckBox::indicator:checked {
+                    background-color: #007acc;
+                    border-color: #007acc;
+                }
+                QCheckBox::indicator:hover {
+                    border-color: #666666;
                 }
             """)
             self.op_checkboxes[op_type] = checkbox
-            op_layout.addWidget(checkbox)
+            
+            op_grid.addWidget(checkbox, op_row, op_col)
+            op_col += 1
+            if op_col >= 2:
+                op_col = 0
+                op_row += 1
         
-        filter_layout.addLayout(op_layout)
+        filter_layout.addWidget(op_container)
         
         filter_layout.addStretch()
         
-        btn_container = QVBoxLayout()
-        btn_container.setSpacing(8)
+        filter_scroll.setWidget(filter_content)
+        main_layout.addWidget(filter_scroll)
+        
+        btn_container = QWidget()
+        btn_container.setStyleSheet("background-color: #252526; border-top: 1px solid #3c3c3c;")
+        btn_layout = QVBoxLayout(btn_container)
+        btn_layout.setContentsMargins(12, 10, 12, 12)
+        btn_layout.setSpacing(8)
         
         self.apply_btn = QPushButton("应用筛选")
         self.apply_btn.setProperty("class", "primary")
-        self.apply_btn.setMinimumHeight(32)
-        self.apply_btn.setStyleSheet("font-size: 13px; font-weight: bold;")
-        btn_container.addWidget(self.apply_btn)
+        self.apply_btn.setMinimumHeight(34)
+        self.apply_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 16px;
+                border: 1px solid #1177bb;
+                border-radius: 4px;
+                background-color: #0e639c;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1177bb;
+            }
+            QPushButton:pressed {
+                background-color: #0d5580;
+            }
+        """)
+        btn_layout.addWidget(self.apply_btn)
         
         self.reset_btn = QPushButton("重置筛选")
-        self.reset_btn.setMinimumHeight(32)
-        self.reset_btn.setStyleSheet("font-size: 13px;")
-        btn_container.addWidget(self.reset_btn)
+        self.reset_btn.setMinimumHeight(34)
+        self.reset_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 16px;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #3c3c3c;
+                color: #d4d4d4;
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+            }
+        """)
+        btn_layout.addWidget(self.reset_btn)
         
-        filter_layout.addLayout(btn_container)
+        main_layout.addWidget(btn_container)
         
-        splitter.addWidget(filter_group)
+        return card
+    
+    def _create_stats_card(self) -> QGroupBox:
+        card = QGroupBox("当前筛选统计")
+        card.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                font-size: 13px;
+                border: 1px solid #3c3c3c;
+                border-radius: 6px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: #252526;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+                background-color: #252526;
+            }
+        """)
         
-        stats_group = QGroupBox("当前筛选统计")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.setSpacing(8)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 18, 12, 12)
+        layout.setSpacing(10)
         
         self.stats_labels = {}
         stats_items = [
-            ("total", "当前显示"),
-            ("pending", "待恢复"),
-            ("high_risk", "高+严重"),
+            ("total", "当前显示", "#007acc"),
+            ("pending", "待恢复", "#ff9800"),
+            ("high_risk", "高+严重", "#f14c4c"),
         ]
         
-        for key, label_text in stats_items:
-            row_layout = QHBoxLayout()
+        for key, label_text, color in stats_items:
+            row_container = QWidget()
+            row_container.setStyleSheet("background-color: #1e1e1e; border-radius: 4px;")
+            row_layout = QHBoxLayout(row_container)
+            row_layout.setContentsMargins(12, 10, 12, 10)
             row_layout.setSpacing(8)
+            
             label = QLabel(f"{label_text}:")
-            label.setStyleSheet("font-size: 13px;")
+            label.setStyleSheet("font-size: 13px; color: #d4d4d4;")
             label.setMinimumWidth(70)
+            
             value_label = QLabel("0")
-            value_label.setStyleSheet("font-size: 13px; font-weight: bold;")
+            value_label.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {color};")
             value_label.setMinimumWidth(50)
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            
             row_layout.addWidget(label)
             row_layout.addStretch()
             row_layout.addWidget(value_label)
-            stats_layout.addLayout(row_layout)
+            
+            layout.addWidget(row_container)
             self.stats_labels[key] = value_label
         
-        splitter.addWidget(stats_group)
-        
-        splitter.setSizes([280, 350, 120])
-        main_layout.addWidget(splitter)
-        
-        self._load_directories()
+        return card
     
     def _connect_signals(self):
         self.directory_tree.itemClicked.connect(self._on_directory_clicked)
