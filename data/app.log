@@ -1,0 +1,79 @@
+2026-05-03 19:08:02 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:08:03 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 19:53:04 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:05 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 19:53:21 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=5
+2026-05-03 19:53:21 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=5
+2026-05-03 19:53:28 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=5
+2026-05-03 19:53:31 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=13
+2026-05-03 19:53:38 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:38 - File Recovery Pro.CenterPanel - INFO - 批量恢复了 13 个项目
+2026-05-03 19:53:43 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:47 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:48 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:50 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:55 - File Recovery Pro.CenterPanel - INFO - 加载了 25 条操作日志
+2026-05-03 19:53:55 - File Recovery Pro.LeftPanel - INFO - 选中目录: E:\A_Project\sc\data\sandbox
+2026-05-03 19:53:56 - File Recovery Pro.LeftPanel - INFO - 目录列表已刷新
+2026-05-03 20:01:36 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 20:01:36 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 20:01:36 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 20:42:03 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 20:42:03 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 20:42:03 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 20:42:11 - File Recovery Pro.LeftPanel - INFO - 目录列表已刷新
+2026-05-03 20:42:16 - File Recovery Pro.LeftPanel - INFO - 选中目录: E:\A_Project\sc\data\sandbox
+2026-05-03 20:42:24 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808544.024334, 'end_time': 1777812144.024334, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:24 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:27 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808547.285384, 'end_time': 1777812147.285384, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:27 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:29 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808549.086633, 'end_time': 1777812149.086633, 'risk_levels': ['MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:29 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:30 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808550.818636, 'end_time': 1777812150.818636, 'risk_levels': ['HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:30 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:32 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808552.520811, 'end_time': 1777812152.520811, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:32 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:32 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808552.723949, 'end_time': 1777812152.723949, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:32 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:32 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': 'E:\\A_Project\\sc\\data\\sandbox', 'start_time': 1777808552.895658, 'end_time': 1777812152.895658, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE']}
+2026-05-03 20:42:32 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 20:42:39 - File Recovery Pro.LeftPanel - INFO - 目录列表已刷新
+2026-05-03 20:57:16 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 20:57:16 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 20:57:16 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 21:07:02 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': 1777810022.228364, 'end_time': 1777813622.228364, 'risk_levels': None, 'operation_types': None}
+2026-05-03 21:07:02 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 21:07:03 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': 1777810023.422737, 'end_time': 1777813623.422737, 'risk_levels': None, 'operation_types': None}
+2026-05-03 21:07:03 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 21:07:06 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 21:07:06 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 21:07:09 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 21:07:09 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 21:30:51 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 21:30:51 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 21:30:51 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 21:37:04 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 21:37:04 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 21:37:04 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
+2026-05-03 21:37:42 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': 1777811862.21849, 'end_time': 1777815462.21849, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE'], 'keyword': None}
+2026-05-03 21:37:42 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 0 条记录
+2026-05-03 21:37:47 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': None, 'end_time': 1777815467.587286, 'risk_levels': ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE'], 'keyword': None}
+2026-05-03 21:37:47 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 21:37:50 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': None, 'end_time': 1777815470.340803, 'risk_levels': ['LOW', 'HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE'], 'keyword': None}
+2026-05-03 21:37:50 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 23 条记录
+2026-05-03 21:37:52 - File Recovery Pro.LeftPanel - INFO - 应用筛选条件: {'path': None, 'start_time': None, 'end_time': 1777815472.845635, 'risk_levels': ['HIGH', 'CRITICAL'], 'operation_types': ['DELETE', 'OVERWRITE', 'MOVE', 'RENAME', 'MODIFY', 'CREATE'], 'keyword': None}
+2026-05-03 21:37:52 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 10 条记录
+2026-05-03 21:37:58 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=2
+2026-05-03 21:37:58 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=2
+2026-05-03 21:38:00 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=24
+2026-05-03 21:38:00 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=24
+2026-05-03 21:38:00 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=22
+2026-05-03 21:38:00 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=22
+2026-05-03 21:38:01 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=21
+2026-05-03 21:38:01 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=21
+2026-05-03 21:38:04 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=6
+2026-05-03 21:38:04 - File Recovery Pro.RightPanel - INFO - 显示日志详情: ID=6
+2026-05-03 21:38:09 - File Recovery Pro.ConflictService - INFO - 检测到 0 个冲突
+2026-05-03 21:48:25 - File Recovery Pro.CenterPanel - INFO - 从数据库加载了 25 条记录
+2026-05-03 21:48:25 - File Recovery Pro.CenterPanel - INFO - 筛选后显示 25 条记录
+2026-05-03 21:48:25 - File Recovery Pro.MainWindow - INFO - 主窗口初始化完成
