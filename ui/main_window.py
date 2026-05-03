@@ -31,6 +31,7 @@ class MainWindow(QMainWindow):
         
         self._connect_signals()
         self._check_demo_environment()
+        self.center_panel.refresh_logs()
         
         self.logger.info("主窗口初始化完成")
     
@@ -173,9 +174,12 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(main_splitter)
     
     def _connect_signals(self):
+        self.left_panel.filters_applied.connect(self.center_panel.apply_filters)
+        self.left_panel.filters_reset.connect(self.center_panel.reset_filters)
+        
+        self.center_panel.data_filtered.connect(self.left_panel.update_statistics)
+        
         self.left_panel.directory_selected.connect(self._on_directory_selected)
-        self.left_panel.timeline_filter_changed.connect(self._on_timeline_filter_changed)
-        self.left_panel.risk_filter_changed.connect(self._on_risk_filter_changed)
         
         self.center_panel.log_selected.connect(self._on_log_selected)
         self.center_panel.logs_selected.connect(self._on_logs_selected)
@@ -270,13 +274,8 @@ class MainWindow(QMainWindow):
         )
     
     def _on_directory_selected(self, path: str):
-        self.center_panel.filter_by_path(path)
-    
-    def _on_timeline_filter_changed(self, start_time, end_time):
-        self.center_panel.filter_by_time_range(start_time, end_time)
-    
-    def _on_risk_filter_changed(self, risk_levels: list):
-        self.center_panel.filter_by_risk(risk_levels)
+        filters = self.left_panel.get_all_filters()
+        self.center_panel.apply_filters(filters)
     
     def _on_log_selected(self, log_data: dict):
         self.right_panel.display_log_details(log_data)
